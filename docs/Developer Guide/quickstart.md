@@ -1,5 +1,5 @@
 ---
-title: '#Quickstart'
+title: Quickstart
 excerpt: '  In this guide, you will learn how to install ZisK, create a simple program and run it using ZisK'
 deprecated: false
 hidden: false
