@@ -16,11 +16,9 @@ next:
 
 ZisK is a high-performance Zero-Knowledge Virtual Machine (zkVM) designed to generate verifiable proofs of arbitrary program execution. It enables developers to prove the correctness of computation without revealing its internal state, making it suitable for privacy-preserving and verifiable systems across decentralized and trustless environments.
 
-
 Traditional proving systems often demand significant cryptographic expertise and computational resources. ZisK abstracts this complexity through a modular, optimized architecture that reduces overhead while maintaining strong cryptographic soundness. The system is implemented in Rust, emphasizing determinism, low latency, and reliability.
 
-
-ZisK provides standardized interfaces such as JSON-RPC, gRPC, and CLI, allowing it to be used as both a standalone service and an embeddable library. The zkVM is designed for flexibility — suitable for single-node setups or distributed proving clusters — enabling developers to deploy proofs efficiently across diverse environments.
+ZisK provides standardized interfaces such as JSON-RPC, gRPC, and CLI, allowing it to be used as both a standalone service and an embeddable library. 
 
 ***
 
