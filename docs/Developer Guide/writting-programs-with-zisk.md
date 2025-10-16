@@ -1,5 +1,5 @@
 ---
-title: Writting Programs with ZisK
+title: Writting Programs
 excerpt: >-
   This document explains how to write or modify a Rust program for execution in
   ZisK.
