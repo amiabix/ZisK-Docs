@@ -5,109 +5,43 @@ excerpt: >-
   running in a jiffy!
 hidden: false
 ---
-# Welcome to ReadMe
+# Introduction
 
-Welcome to your new developer hub—AI-powered, Git-backed, and built to help your docs evolve with your product.
+<div class="zisk-brand-box">
+  <h3>Zero-Knowledge Verification for Everyone</h3>
+  <p>ZisK is a high-performance zkVM (Zero-Knowledge Virtual Machine) designed to generate zero-knowledge proofs of arbitrary program execution. It enables developers to prove the correctness of a computation without revealing its internal state, making ZisK a powerful tool for privacy-preserving and verifiable computation.</p>
+</div>
 
-You’re looking at a starter page we included to help you get started. Feel free to treat this as your first doc by hitting **Edit** at the top to make it your own, or delete it to start fresh.
+Proving systems traditionally involve complex cryptographic operations that require deep expertise and significant computational resources. ZisK abstracts these complexities by providing an optimized toolstack that minimizes computational overhead, making ZK technology accessible to a broader range of developers. With Rust-based execution and planned multi-language support, ZisK is designed to be developer-friendly while maintaining high performance and robust security.
 
-***
+## Why Choose ZisK?
 
-## ✍️ Write Docs with Components & Guides
+<div class="zisk-brand-box">
+  <h3>High Performance Architecture</h3>
+  <p>Optimized architecture for low-latency proof generation with minimal computational overhead.</p>
+</div>
 
-Start by creating <Anchor label="**Guides**" target="_blank" href="https://docs.readme.com/main/docs/creating-and-managing-guides">**Guides**</Anchor> - your API's instruction manual where you can walk users through key concepts, tutorials, or best practices.
+* **Rust-Based**: Built with Rust for memory safety and performance, with planned multi-language support
+* **Developer Friendly**: No recompilation required across different programs
+* **Standardized Interface**: JSON-RPC, GRPC, and CLI interfaces for flexible integration
+* **Flexible Integration**: Usable as a standalone service or as a library
+* **Decentralized Architecture**: Trustless proof generation with horizontal scaling
+* **Cost Optimized**: Optimized proof generation costs for real-world applications
+* **Fully Open Source**: Backed by Polygon zkEVM and Plonky3 technology
 
-With ReadMe's MDX editor, you can combine Markdown and custom JSX components like `<Card>`, `<Tab>`, and `<Accordion>` for richer content and better structure.
+## Getting Started
 
-You can even [build your own custom **Components**](/docs/getting-started#/settings/custom-components/start) to reuse across your docs.
+Ready to start building with ZisK? Follow our documentation flow:
 
-<Cards columns={3}>
-  <Card title="Explore the Component Marketplace" href="https://github.com/readmeio/marketplace/tree/main/components" icon="fa-store" target="_blank">
-    Drop in and customize components.
-  </Card>
+1. **Installation**: Start with the [Installation Guide](getting_started/installation.md) to set up your development environment
+2. **Quickstart**: Follow the [Quickstart Guide](getting_started/quickstart.md) to create your first ZisK program
+3. **Writing Programs**: Learn more in the [Writing Programs](getting_started/writing_programs.md) guide
+4. **Advanced Features**: Explore [Precompiles](getting_started/precompiles.md) and [Proof Generation](getting_started/proof.md)
 
-  <Card title="MDX (Markdown + JSX)" href="https://docs.readme.com/main/docs/mdx" icon="fa-code">
-    Learn more about MDX to build interactive components.
-  </Card>
+## Documentation Structure
 
-  <Card title="Custom MDX Components" href="https://docs.readme.com/main/docs/building-custom-mdx-components" icon="fa-wrench">
-    Build your own components to reuse anywhere.
-  </Card>
-</Cards>
+This documentation is organized to guide you through the ZisK development workflow:
 
-Looking for a branded entry point? Enable a **<Anchor label="Landing Page" target="_blank" href="https://docs.readme.com/main/docs/landing-page">Landing Page</Anchor>** to welcome your developers and direct them to key docs.
-
-***
-
-## 🤖 Add AI to Your Dev Hub
-
-AI is built into ReadMe to help you and your users move faster. Slide the panel open by hitting **:sparkles:AI** in your top navigation bar.
-
-* **AI Agent**\
-  Our built-in AI agent is your sidekick for drafting documentation, translating pages, and applying style guides.
-
-* **MCP Server**\
-  Generate an **MCP** server to convert your API documentation into a structured resource that AI assistants can understand and interact with programmatically.
-
-* **AI-Powered Search**\
-  Enable AI Search to help developers ask questions about your product and instantly receive an answer.
-
-* **Open in Other AI Services**\
-  Let your developers open your docs in tools like ChatGPT, Claude, or other LLMs, using context from your API and `llms.txt` configuration.
-
-***
-
-## 🌿 Edit, Preview, and Publish in Branches
-
-<Anchor label="Branches" target="_blank" href="https://docs.readme.com/main/docs/branches">Branches</Anchor> bring Git-style workflows to your documentation process. Use them to:
-
-* Draft changes across multiple pages without publishing immediately
-* Review and preview updates before they go live
-* Share edits with teammates for feedback
-* Safely iterate without disrupting your production docs
-
-You can create a branch directly from the Versions & Branches menu, save edits into a new branch, or sync with GitHub and automatically reflect branches across both platforms.
-
-Once you're ready, merge the branch back into a live version. Enterprise plans can control who has merge access, and you’ll always get a conflict check before merging.
-
-***
-
-## 🔁 Sync with Git
-
-Whether you write docs in ReadMe's editor or your local dev environment, ReadMe fits into your workflow:
-
-* **[Bi-Directional Sync with GitHub](https://docs.readme.com/main/docs/bi-directional-sync)**\
-  Connect a GitHub repo to your project and work in branches. Changes in Git or ReadMe will stay in sync—perfect for staging and code review workflows.
-
-* **Sync Your OpenAPI Files**\
-  Use [`rdme`](https://docs.readme.com/docs/rdme#upload) or the ReadMe API to push your OpenAPI spec and keep your API Reference up to date automatically.
-
-***
-
-## 👀 Understand Your Developers
-
-Want to know how developers are actually using your API and docs?
-
-* **<Anchor label="My Developers" target="_blank" href="https://docs.readme.com/main/docs/developer-dashboard">My Developers</Anchor>** gives you real-time visibility into who is visiting your docs, what endpoints they’re using, and where they’re getting stuck.
-* Segment usage by key users or cohorts to monitor engagement and spot issues before they turn into support tickets.
-* To set up My Developers, you'll first authenticate logged-in users with the <Anchor label="Personalized Docs Webhook" target="_blank" href="https://docs.readme.com/main/docs/personalized-docs-webhook">Personalized Docs Webhook</Anchor>, then integrate the [Metrics SDK](https://docs.readme.com/main/docs/sending-api-logs) to send API logs to ReadMe.
-
-***
-
-## 🚀 Next Steps
-
-* Start writing: create your first Guide or sync in your OAS file.
-* [Connect GitHub for bi-directional sync](/docs/getting-started#/settings/git-connection/github).
-* Set up your <Anchor label="MCP server" target="_blank" href="https://docs.readme.com/main/docs/mcp-servers">MCP server</Anchor>.
-* Visit **My Developers** in the top navigation bar to start understanding your audience.
-
-***
-
-<Callout icon="💼" theme="default">
-  Need support for multiple products, advanced permissions, or deeper customization?\
-  Our enterprise features are built for teams managing business-critical APIs at scale. [Let's talk.](mailto:growth@readme.io)
-</Callout>
-
-## 💬 Need Help?
-
-Our team is here to support you. If you get stuck, [email us](mailto:support@readme.io) or open the Intercom widget on any page to chat with someone from our team. We've also got a <Anchor label="Slack community" target="_blank" href="https://readme.com/slack">Slack community</Anchor> if you want to say hi to the team and connect with other ReadMe users!
+* **Getting Started**: Installation, quickstart, and basic program creation
+* **Developer Guide**: Advanced development topics and tools
+* **Distributed Proving System**: Scaling proof generation with distributed architecture
