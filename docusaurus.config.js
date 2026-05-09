@@ -11,8 +11,8 @@ const config = {
     v4: true,
   },
 
-  url: 'https://zisk-docs.vercel.app',
-  baseUrl: '/',
+  url: 'https://amiabix.github.io',
+  baseUrl: '/ZisK-Docs/',
 
   organizationName: 'amiabix',
   projectName: 'ZisK-Docs',
