@@ -11,11 +11,12 @@ const config = {
     v4: true,
   },
 
-  url: 'https://your-docusaurus-site.example.com',
-  baseUrl: '/',
+  url: 'https://amiabix.github.io',
+  baseUrl: '/ZisK-Docs/',
 
-  organizationName: 'zisk',
-  projectName: 'zisk-docs',
+  organizationName: 'amiabix',
+  projectName: 'ZisK-Docs',
+  trailingSlash: false,
 
   onBrokenLinks: 'throw',
 
