@@ -1,0 +1,418 @@
+---
+id: io
+sidebar_position: 4
+title: Working with i/o
+description: Host and guest exchange data through Stdin for program inputs and PublicValues for committed results, with serialization format alignment as the key invariant.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+The host controls two I/O channels: writing input the guest reads during execution, and reading public values the guest commits to the proof. Serialization order and format must match exactly on both sides.
+
+</Summary>
+
+## Writing to the guest program
+
+The host prepares a `Stdin` buffer before proving and fills it with data the guest expects. Whatever the host writes is exactly what the guest reads. The serialization format and order must match exactly.
+
+### Write primitives
+
+`ZiskStdin` exposes two primitives for appending input:
+
+| Method | Use when | Description |
+|---|---|---|
+| `write::<T>(&val)` | You have a typed Rust value | Serializes `value` with bincode and appends it. `T` must implement `serde::Serialize`. |
+| `write_slice(&[u8])` | Data is already in byte form | Appends one length-prefixed frame whose payload is the byte slice. |
+
+Both primitives mix freely within a single `ZiskStdin`. Use `stdin.write` when the guest reads typed values with `io::read::<T>()`.
+
+Use `stdin.write_slice` for raw bytes when the guest reads with `io::read_input_slice()` or when data arrives pre-serialized.
+
+Each `stdin.write` call appends two sections: a `u64` length header (8 bytes, little-endian) storing the payload byte size, followed by the value bytes zero-padded to the next 8-byte boundary.
+
+`stdin.write_slice` uses the same frame format, but the payload is exactly the bytes you pass in. The guest receives only the payload; the 8-byte length header and padding are consumed by the input reader.
+
+![Input buffer encoding: host stdin.write calls (① u8=83, ② u16=66, ③ u8=93) become three frames in the input buffer; each frame is 8-byte length + 8-byte value+padding](/diagrams/svgs/55-input-buffer-encoding.svg)
+
+---
+
+## Working on a real example
+
+This section builds a hash-accumulator program end to end and writes its inputs three different ways. Each approach changes both how the host fills `Stdin` and how the guest reads it.
+
+The two sides must always agree on the byte layout. This invariant applies across all three approaches.
+
+The program logic is identical in each version: the guest takes a list of `u32` values and a `u64` salt, feeds each value and then the salt into a SHA-256 hasher, and commits the resulting 32-byte digest as a public output.
+
+Only the input shape and guest read pattern change between approaches.
+
+### Set up the project
+
+Scaffold a fresh project with `cargo-zisk`. Reuse it across all three approaches, rewriting the `common`, `guest`, and `host` crates each time:
+
+```zisk-bash title="bash"
+cargo-zisk new hash-accumulator
+cd hash-accumulator
+```
+
+The project has a `guest/` crate where the ZisK program lives, a `common/` crate with shared types, and a `host/` crate where input logic lives. The next sections fill in each.
+
+### Writing a typed struct
+
+The shared contract between host and guest lives in the `common` crate. Both depend on it so the compiler enforces agreement on the same type. First, add `serde` to common crate dependencies:
+
+```toml title="common/Cargo.toml"
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+```
+
+With the dependency in place, open `common/src/lib.rs` and define `InputDTO`:
+
+```rust title="common/src/lib.rs"
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct InputDTO {
+    pub values: Vec<u32>,
+    pub salt: u64,
+}
+```
+
+`Serialize` lets the host pass the struct to `stdin.write`, while `Deserialize` lets the guest reconstruct it with `io::read::<InputDTO>()`.
+
+With the type in place, open `guest/src/main.rs` and write the guest. A single `io::read::<InputDTO>()` call reads the entire input; bincode handles the length prefix, the values, and the salt automatically:
+
+```rust title="guest/src/main.rs"
+use common::InputDTO;
+use sha2::{Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    // Reading the program input struct.
+    let input = io::read::<InputDTO>();
+
+    // Executing program logic.
+    let mut hasher = Sha256::new();
+    for value in &input.values {
+        hasher.update(value.to_le_bytes());
+    }
+    hasher.update(input.salt.to_le_bytes());
+    let digest: [u8; 32] = hasher.finalize().into();
+
+    // Committing the result as a public output.
+    io::commit(&digest);
+
+}
+```
+
+Now open `host/src/main.rs` and assemble an `InputDTO` to write it in a single call. Bincode serializes the `Vec` with its length prefix and the `salt` in sequence, so the entire input ships in one `stdin.write`:
+
+```rust title="host/src/main.rs"
+use common::InputDTO;
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!("hash-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    // Setting up the guest program
+    client.setup(&PROGRAM).run()?.await?;
+
+    // Building the guest program input
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&InputDTO {
+        values: vec![10, 20, 30],
+        salt: 42,
+    });
+
+    // Computing the proof
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+    let digest: [u8; 32] = proof.get_public_values()?;
+    println!("Hash acc. => 0x{}", hex::encode(digest));
+    Ok(())
+
+}
+```
+
+Build the guest and run the host:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo run --release
+```
+
+```
+Hash acc. => 0x9b15b8e31756e4a3292b0d8f4e6f89c3a1d27e5048f3c6b9d20e7a41b5f8c2d
+```
+
+### Writing multiple typed values
+
+Now drop the struct and write the count, each value, and the salt as separate `stdin.write` calls. Each write carries its own size header, so the input layout changes and the guest must change to match.
+
+Open `guest/src/main.rs` and write the new guest reading pattern:
+
+```rust title="guest/src/main.rs"
+use sha2::{Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    // Reading the number of values
+    let count = io::read::<u64>();
+
+    // Executing program logic.
+    let mut hasher = Sha256::new();
+    for _ in 0..count {
+
+        // Reading each values independently
+        let value: u32 = io::read();
+        hasher.update(value.to_le_bytes());
+
+    }
+
+    // Reading the salt
+    let salt: u64 = io::read();
+    hasher.update(salt.to_le_bytes());
+    let digest: [u8; 32] = hasher.finalize().into();
+
+    // Committing the result as a public output.
+    io::commit(&digest);
+
+}
+```
+
+Now update `host/src/main.rs` to match the reading pattern:
+
+```rust title="host/src/main.rs"
+use common::InputDTO;
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!("hash-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    // Setting up the guest program
+    client.setup(&PROGRAM).run()?.await?;
+
+    // Building the guest program input
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&3u64);
+    stdin.write(&10u32);
+    stdin.write(&20u32);
+    stdin.write(&30u32);
+    stdin.write(&42u64);
+
+    // Computing the proof
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+    let digest: [u8; 32] = proof.get_public_values()?;
+    println!("Hash acc. => 0x{}", hex::encode(digest));
+    Ok(())
+
+}
+```
+
+Build and run:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo run --release
+```
+
+```
+Hash acc. => 0x9b15b8e31756e4a3292b0d8f4e6f89c3a1d27e5048f3c6b9d20e7a41b5f8c2d
+```
+
+Same digest. Writing primitives individually lets you source the count, values, and salt from different places, validate or transform each before appending, or build the input incrementally as data becomes available.
+
+### Writing raw bytes
+
+Now drop the per-element reads entirely. When values are already in byte form, `write_slice` bypasses bincode for that segment, and the guest pulls the values and salt in one `read_input_slice` call.
+
+Open `guest/src/main.rs` and write the new guest reading pattern:
+
+```rust title="guest/src/main.rs"
+use sha2::{Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    // Reading the count to know how many bytes to expect.
+    let count = io::read::<u64>();
+
+    // Reading values (count x 4 bytes) and salt (8 bytes) in one shot.
+    let buf = io::read_input_slice();
+    assert_eq!(buf.len(), count as usize * 4 + 8);
+
+    // Executing program logic.
+    let digest = Sha256::digest(buf.as_ref());
+
+    // Committing the result as a public output.
+    io::commit(&digest);
+
+}
+```
+
+Now update `host/src/main.rs` to match the reading pattern:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!("hash-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    // Setting up the guest program
+    client.setup(&PROGRAM).run()?.await?;
+
+    // Building the guest program input
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&3u64);
+    stdin.write_slice(&[
+        0x0a, 0x00, 0x00, 0x00,
+        0x14, 0x00, 0x00, 0x00,
+        0x1e, 0x00, 0x00, 0x00,
+        0x2a, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    ]);
+
+    // Computing the proof
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+    let digest: [u8; 32] = proof.get_public_values()?;
+    println!("Hash acc. => 0x{}", hex::encode(digest));
+    Ok(())
+
+}
+```
+
+Build and run:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo run --release
+```
+
+```
+Hash acc. => 0x9b15b8e31756e4a3292b0d8f4e6f89c3a1d27e5048f3c6b9d20e7a41b5f8c2d
+```
+
+Same digest. Writing the payload as raw bytes skips the per-value size headers and lets the guest hash the whole buffer in a single pass.
+
+All three approaches produce the same digest because host and guest agree on the input layout in each case. Change one side without updating the other and the guest deserializes garbage.
+
+:::warning
+Every time the guest is modified, rebuild the ELF before proving, otherwise the prover runs the old binary. Two options exist:
+
+**Option 1. Rebuild manually**
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+```
+
+**Option 2. Automate with `build.rs`**
+
+Add a build_program to the host crate using `zisk_sdk::build_program`. Cargo runs it automatically before compiling the host, so a single `cargo run --release` always uses the latest ELF:
+
+```rust title="host/build.rs"
+use zisk_sdk::build_program;
+
+fn main() {
+    build_program("../guest");
+}
+```
+
+:::
+
+---
+
+## Reading guest committed outputs
+
+Once a proof is available, the host reads back whatever the guest committed with `io::commit`. Public values form the only channel through which the guest exposes results, and they bind to the proof so they cannot be forged.
+
+The same `hash-accumulator` project is used throughout this section. The guest commits a single `[u8; 32]` SHA-256 digest, so exactly one public value exists to consume.
+
+### Reading as raw bytes
+
+Use `get_public_values_slice(&mut buf)` when the guest committed raw bytes, or when you need the exact public-output slot bytes for another verifier. Allocate only the number of bytes you want to read:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!("hash-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    let client = ProverClient::embedded().build()?;
+    client.setup(&PROGRAM).run()?.await?;
+
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&3u64);
+    stdin.write_slice(&[
+        0x0a, 0x00, 0x00, 0x00,
+        0x14, 0x00, 0x00, 0x00,
+        0x1e, 0x00, 0x00, 0x00,
+        0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]);
+
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+    let mut digest = [0u8; 32];
+    proof.get_public_values_slice(&mut digest);
+    println!("Digest: 0x{}", hex::encode(digest));
+
+    Ok(())
+}
+```
+
+```
+Digest: 9b15b8e31756e4a3292b0d8f4e6f89c3a1d27e5048f3c6b9d20e7a41b5f8c2d
+```
+
+### Reading typed outputs
+
+`PublicValues` also acts as a cursor: call `.read::<T>()` to deserialize each committed value in the order the guest produced them. Each call advances the cursor, so multiple reads pull successive values:
+
+```rust
+let publics = proof.get_publics();
+let nonce: u64 = publics.read()?;
+let digest: [u8; 32] = publics.read()?;
+```
+
+Use `read_slice(&mut buf)` on `PublicValues` for raw byte reads and `read_abi::<T>()` for Solidity ABI-encoded values. For EVM verifier calldata, allocate the full public-output slot buffer with `let mut public_values = [0u8; 64 * 4];`. That is 64 slots × 4 bytes = 256 bytes, matching the `data` buffer the verifier consumes via `bytes_solidity()`.
+
+`PublicValues::public_bytes()` is an internal helper that re-expands those 256 bytes into 512 bytes (64 × `u64`, upper 32 bits zero-padded) for proof-system internals. It is not what an EVM verifier sees as `publicValues` calldata, so do not size your buffer against it.
+
+The read order must match the commit order exactly. If the guest commits a `u64` then a `[u8; 32]`, the host must read a `u64` first and then the byte array.
+
+## Summary
+
+Inputs flow into the guest from `ZiskStdin`, and public values flow back out through `PublicValues`. The host controls the producer side of input and reads back what the guest commits. Alignment between both sides is essential.
+
+---
+
+## Where this picks up
+
+With I/O covered end to end, the next step is handling the proof itself:
+
+- [Verifying a proof](./verify-proof): load proofs from disk and verify them programmatically.
+- [On-chain verification](./on-chain-verification): pass public values bytes directly to a Solidity verifier contract.
+
+When ready to optimize, head to [Profiling your program](../writing-programs/profiling) to measure execution cost and find bottlenecks.

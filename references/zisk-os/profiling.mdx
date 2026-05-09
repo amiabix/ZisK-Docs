@@ -1,0 +1,258 @@
+---
+id: profiling
+title: Profiling
+sidebar_position: 3
+displayed_sidebar: referencesSidebar
+description: Guest-side profiling macros for measuring proving cost
+  and step counts of regions inside a ZisK guest program.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Guest-side macros that bracket a region of code and attribute either
+proving cost or executed steps to a named label. Eight macros cover
+two metrics (cost and steps), each with a silent variant that only
+records and a report variant that also prints results.
+
+</Summary>
+
+## Module overview
+
+Profiling regions are opened and closed by macros, not functions.
+Each macro takes a bare identifier as its label, never a string.
+The identifier is captured at expansion time via `stringify!` and
+forwarded to the runtime through the `SYSCALL_PROFILE_ID` syscall.
+
+There are two metrics:
+
+- **Cost** measures the proving cost of the region, the same unit
+  the prover charges against the trace.
+- **Steps** measures the executed step count of the region.
+
+For each metric there is a silent pair that only records the
+region, and a report pair that also prints the result at the end
+call. Eight macros in total:
+
+| Metric | Silent                                  | Report                                                      |
+| ------ | --------------------------------------- | ----------------------------------------------------------- |
+| Cost   | `profile_start!` / `profile_end!`       | `profile_report_start!` / `profile_report_end!`             |
+| Steps  | `profile_steps_start!` / `profile_steps_end!` | `profile_report_steps_start!` / `profile_report_steps_end!` |
+
+All eight macros are gated on `#[cfg(all(target_os = "zkvm",
+target_vendor = "zisk"))]`. On any other target they expand to an
+empty body, so the same guest source compiles and runs as a native
+binary for testing without a separate feature flag.
+
+```rust
+use ziskos::{profile_start, profile_end};
+
+profile_start!(hash_loop);
+for value in &input.values {
+    hasher.update(value.to_le_bytes());
+}
+profile_end!(hash_loop);
+```
+
+The rest of this page documents each macro pair in turn.
+
+## Identifiers, not strings
+
+Every profiling macro takes a Rust identifier, matched by the
+`$name:ident` fragment specifier. The identifier is never evaluated
+as a binding, it is only stringified to produce the label.
+
+```rust
+profile_start!(merkle_verify);   // ok
+profile_start!("merkle_verify"); // does not compile
+profile_start!(label_var);       // labels the region "label_var",
+                                 // not the value of label_var
+```
+
+Identifiers are subject to Rust's identifier syntax, so dashes,
+spaces, and dots are not allowed. Use snake_case names.
+
+The start and end macro of a pair must be called with the same
+identifier. The runtime matches regions by their stringified label.
+
+## Cost vs steps
+
+`profile_start!` / `profile_end!` and their report variants record
+proving **cost**, the metric the prover uses to size the trace.
+
+`profile_steps_start!` / `profile_steps_end!` and their report
+variants record executed **steps**, the raw instruction count of the
+region.
+
+The two metrics are exposed by distinct syscall constants
+(`PROFILE_START_COST_ID`, `PROFILE_END_COST_ID`,
+`PROFILE_START_STEPS_ID`, `PROFILE_END_STEPS_ID`, and the four
+report counterparts). Pick the metric that matches the question you
+are asking; do not mix start and end macros from different metrics
+in the same region.
+
+## Silent vs report
+
+The silent variants record the region only. Results are surfaced by
+the host-side profiling tooling after the run completes.
+
+The report variants record the region **and** print its result on
+the end call. Use them for ad-hoc inspection during development;
+prefer the silent variants for permanent instrumentation that the
+host run will aggregate.
+
+---
+
+## profile_start! / profile_end!
+
+Open and close a region whose proving cost is recorded into the
+execution trace.
+
+```rust
+profile_start!($name:ident)
+profile_end!($name:ident)
+```
+
+#### Parameters
+
+| Name    | Kind         | Description                                                          |
+| ------- | ------------ | -------------------------------------------------------------------- |
+| `$name` | `ident`      | Region label. Captured via `stringify!` at macro expansion time.     |
+
+#### Behavior
+
+`profile_start!` issues `SYSCALL_PROFILE_ID` with
+`PROFILE_START_COST_ID` and a pointer to the stringified label.
+`profile_end!` does the same with `PROFILE_END_COST_ID`.
+
+On non-zkvm targets both macros expand to an empty body.
+
+#### Example
+
+```rust
+use ziskos::{profile_start, profile_end};
+
+profile_start!(merkle_verify);
+let root = verify_path(&leaf, &path);
+profile_end!(merkle_verify);
+```
+
+---
+
+## profile_report_start! / profile_report_end!
+
+Same as the silent cost pair, but the end call also prints the
+recorded cost.
+
+```rust
+profile_report_start!($name:ident)
+profile_report_end!($name:ident)
+```
+
+#### Parameters
+
+| Name    | Kind    | Description                                                  |
+| ------- | ------- | ------------------------------------------------------------ |
+| `$name` | `ident` | Region label. Captured via `stringify!` at expansion time.   |
+
+#### Behavior
+
+`profile_report_start!` issues `SYSCALL_PROFILE_ID` with
+`PROFILE_REPORT_START_COST_ID`. `profile_report_end!` issues it
+with `PROFILE_REPORT_END_COST_ID`, which records the region and
+also prints its result.
+
+On non-zkvm targets both macros expand to an empty body.
+
+#### Example
+
+```rust
+use ziskos::{profile_report_start, profile_report_end};
+
+profile_report_start!(hash_loop);
+for value in &input.values {
+    hasher.update(value.to_le_bytes());
+}
+profile_report_end!(hash_loop);
+```
+
+---
+
+## profile_steps_start! / profile_steps_end!
+
+Open and close a region whose executed step count is recorded into
+the execution trace.
+
+```rust
+profile_steps_start!($name:ident)
+profile_steps_end!($name:ident)
+```
+
+#### Parameters
+
+| Name    | Kind    | Description                                                  |
+| ------- | ------- | ------------------------------------------------------------ |
+| `$name` | `ident` | Region label. Captured via `stringify!` at expansion time.   |
+
+#### Behavior
+
+`profile_steps_start!` issues `SYSCALL_PROFILE_ID` with
+`PROFILE_START_STEPS_ID`. `profile_steps_end!` issues it with
+`PROFILE_END_STEPS_ID`.
+
+On non-zkvm targets both macros expand to an empty body.
+
+#### Example
+
+```rust
+use ziskos::{profile_steps_start, profile_steps_end};
+
+profile_steps_start!(inner_product);
+let dot = a.iter().zip(b).map(|(x, y)| x * y).sum::<u64>();
+profile_steps_end!(inner_product);
+```
+
+---
+
+## profile_report_steps_start! / profile_report_steps_end!
+
+Same as the silent steps pair, but the end call also prints the
+recorded step count.
+
+```rust
+profile_report_steps_start!($name:ident)
+profile_report_steps_end!($name:ident)
+```
+
+#### Parameters
+
+| Name    | Kind    | Description                                                  |
+| ------- | ------- | ------------------------------------------------------------ |
+| `$name` | `ident` | Region label. Captured via `stringify!` at expansion time.   |
+
+#### Behavior
+
+`profile_report_steps_start!` issues `SYSCALL_PROFILE_ID` with
+`PROFILE_REPORT_START_STEPS_ID`. `profile_report_steps_end!`
+issues it with `PROFILE_REPORT_END_STEPS_ID`, which records the
+region and also prints its result.
+
+On non-zkvm targets both macros expand to an empty body.
+
+#### Example
+
+```rust
+use ziskos::{profile_report_steps_start, profile_report_steps_end};
+
+profile_report_steps_start!(decode_input);
+let decoded = decode(&raw);
+profile_report_steps_end!(decode_input);
+```
+
+:::warning
+Each start macro must be paired with the matching end macro of the
+same metric and the same label. Mixing cost and steps macros across
+a single region, or closing with a different identifier, leaves the
+region unclosed in the recorded trace.
+:::

@@ -1,0 +1,155 @@
+---
+id: quickstart
+sidebar_position: 0
+title: Quickstart
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Scaffold a ZisK project, build and run a guest program on the emulator, derive its proving key, generate a proof, and verify the result both from the CLI and programmatically via the SDK. The example is a Fibonacci guest.
+
+</Summary>
+
+## Create the project
+
+Use the `cargo-zisk` CLI to scaffold a project. It initializes workspace configuration, registers the toolchain, and wires dependencies so you can start executing immediately:
+
+```zisk-bash title="bash"
+cargo-zisk new fibonacci
+cd fibonacci
+```
+
+The project structure looks like this:
+
+```
+fibonacci/
+├── Cargo.toml             
+├── common/           => Crate to define shared types and functionalities
+│   ├── Cargo.toml       between guest and host crates.
+│   └── src/
+|       └── lib.rs
+├── guest/            => The guest program is the one that is executed and
+│   ├── Cargo.toml       proven inside the zkVM.
+│   └── src/
+|       └── main.rs
+└── host/             => The host program is the one that drives execution 
+    ├── Cargo.toml       and proving from outside the zkVM. It is not proven.
+    └── src/
+        └──main.rs
+```
+
+The guest reads `n` as `u8` from the input buffer, computes the nth Fibonacci number, and commits the result as a public output. The host is a normal Rust program that runs on your machine: it prepares the input, runs the guest, and handles the proving pipeline. The common crate holds types shared between guest and host.
+
+:::tip
+Open the guest and host crates and read through them to understand the structure. This guide focuses on the execution flow and tool verification. The [Writing programs](../writing-programs/first-guest) and [Proving programs](../proving-programs/first-proof) sections explain each piece in depth.
+:::
+
+---
+
+## Run via CLI
+
+The `cargo-zisk` CLI exposes the full pipeline as subcommands. This is the fastest way to move from source code to a verified proof without writing any host code.
+
+### Build the guest program
+
+Compile the guest to a RISC-V ELF binary using the ZisK toolchain:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+```
+
+```
+   Compiling fibonacci-guest v0.1.0 (guest/)
+    Finished release [optimized] target(s) in 5.20s
+```
+
+The compiled binary lands at:
+
+```
+target/elf/riscv64ima-zisk-zkvm-elf/release/fibonacci
+```
+
+This ELF is the exact program the zkVM executes. The `riscv64ima-zisk-zkvm-elf` target in the path confirms compilation happened for ZisK's RISC-V environment, not your host machine.
+
+### Execute the guest program
+
+Run the guest in the emulator to verify output correctness before generating a full proof. `cargo-zisk run -i` expects a plain filesystem path to a `ZiskStdin`-formatted input file. URI schemes (including `file://`) are not accepted here; the `run` command reads the input via `ZiskStdin::from_file`. (`prove` and `execute` go through `from_uri` and additionally accept `file://`, but neither command accepts `http(s)://`.) Build the input file from a host program with `ZiskStdin::write` and `ZiskStdin::save`:
+
+```zisk-bash title="bash"
+cargo-zisk run -i <path/to/input.bin>
+```
+
+```
+Fibonacci(10) = 55
+```
+
+`cargo-zisk run` executes the guest in emulated mode and prints any output from inside the VM. No proof is generated at this stage.
+
+### Setup the guest program
+
+Before ZisK generates a proof, it needs a proving key derived from your specific guest binary. This key encodes the program's structure so the prover can commit efficiently to the correct execution trace. Generate it with:
+
+```zisk-bash title="bash"
+cargo-zisk program-setup
+```
+
+### Prove the guest program
+
+With the proving key in place, run the prover. It re-executes the guest, generates arithmetic constraints over the execution trace, and produces a proof that the output is correct. `-i` takes the same `ZiskStdin`-formatted file used by `run`, not an inline literal:
+
+```zisk-bash title="bash"
+cargo-zisk prove -i <path/to/input.bin>
+```
+
+```
+Proof generated successfully!
+```
+
+### Verify the proof
+
+Verification checks the mathematical structure of the proof without re-executing the program. Verify an existing proof at any time with:
+
+```zisk-bash title="bash"
+cargo-zisk verify -p <proof>
+```
+
+```
+Proof verified succesfully!
+```
+
+Anyone with the verify key can run this command and be certain the committed output was produced by a correct execution of the guest.
+
+---
+
+## Run via SDK
+
+Everything shown above with the CLI can also be driven from Rust using the ZisK SDK. Open `host/src/main.rs` to see the full pipeline.
+
+Building the guest, setting up the proving key, proving, and verifying all run programmatically from a single Rust program. The same sequence of steps as the CLI, expressed as SDK function calls instead of shell commands.
+
+Run the host to see it in action:
+
+```bash title="bash"
+cargo run --release
+```
+
+```
+Proof generated successfully!
+Proof verified succesfully!
+Fibonacci(10) = 55
+```
+
+---
+
+## Summary
+
+You have run the full ZisK workflow: compile a guest program, execute it in the emulator, generate a proof, and verify it both from the CLI and programmatically via the SDK.
+
+---
+
+## Where this picks up
+
+- [Writing programs](../writing-programs): write and optimize your own guest from scratch.
+- [Proving programs](../proving-programs): drive the proving pipeline programmatically and from the CLI.

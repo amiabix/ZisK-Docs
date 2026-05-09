@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Sections 2-4 · All 32 Diagrams Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink-050: #FFFFFF;
+    --ink-100: #F7F8FA;
+    --border: #D9DCE3;
+    --text: #15161D;
+    --text-2: #4A4C59;
+    --text-3: #7E7F8C;
+    --green-bright: #00B359;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ink-050);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    padding: 56px 56px 80px;
+  }
+  .page { max-width: 1480px; margin: 0 auto; }
+  .header {
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--green-bright);
+    margin: 0 0 10px;
+  }
+  .title {
+    font-weight: 800;
+    font-size: 38px;
+    letter-spacing: -0.025em;
+    margin: 0 0 8px;
+  }
+  .subtitle {
+    font-size: 14px;
+    color: var(--text-2);
+    max-width: 70ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--ink-100);
+    margin-bottom: 36px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+  }
+  .toc a {
+    color: var(--text-2);
+    text-decoration: none;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--ink-050);
+  }
+  .toc a:hover { color: var(--green-bright); border-color: var(--green-bright); }
+  .section {
+    margin-bottom: 48px;
+    scroll-margin-top: 24px;
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid var(--green-bright);
+  }
+  .section-title {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .section-source {
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--ink-050);
+    margin-bottom: 22px;
+    overflow: hidden;
+  }
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--ink-100);
+  }
+  .card-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--green-bright);
+    font-weight: 600;
+  }
+  .card-title {
+    font-weight: 700;
+    font-size: 15px;
+    margin: 0;
+  }
+  .card-meta {
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-3);
+  }
+  .card-body {
+    padding: 24px;
+    overflow-x: auto;
+    text-align: center;
+  }
+  .card-body img {
+    max-width: 100%;
+    height: auto;
+    display: inline-block;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="header">
+    <p class="eyebrow">Sections 2-4 · Reconstructed Diagrams Review · v2</p>
+    <h1 class="title">All 32 reconstructed diagrams</h1>
+    <p class="subtitle">Original mermaid sources for these diagrams were lost. Reconstructed from prose context in source markdown files; rendered via mmdc with the design system theme. Review for content fidelity.</p>
+  </header>
+
+  <div class="toc">
+<a href="#sec-01">Deep · The processor</a>
+    <a href="#sec-02">Deep · Chips</a>
+    <a href="#sec-03">Deep · Arithmetization</a>
+    <a href="#sec-04">Deep · The proving pipeline</a>
+    <a href="#sec-05">Deep · Recursion</a>
+    <a href="#sec-06">Deep · The ISA</a>
+    <a href="#sec-07">Deep · Continuations</a>
+    <a href="#sec-08">Prover · Quickstart</a>
+    <a href="#sec-09">Prover · Architecture</a>
+    <a href="#sec-10">Prover · Testing</a>
+    <a href="#sec-11">Prover · Docker compose</a>
+    <a href="#sec-12">Prover · Linux server</a>
+    <a href="#sec-13">References · API overview</a>
+    <a href="#sec-14">References · API data types</a>
+    <a href="#sec-15">Developer · Proof format</a>
+    <a href="#sec-16">Intro · Why ZisK</a>
+  </div>
+
+<section class="section" id="sec-01">
+  <div class="section-head">
+    <h2 class="section-title">Deep · The processor</h2>
+    <span class="section-source">intro/deep/processor.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">20</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">20-processor-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/20-processor-1.svg" alt="20-processor-1" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">21</span>
+    <h3 class="card-title">Diagram 2</h3>
+    <span class="card-meta">21-processor-2.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/21-processor-2.svg" alt="21-processor-2" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">22</span>
+    <h3 class="card-title">Diagram 3</h3>
+    <span class="card-meta">22-processor-3.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/22-processor-3.svg" alt="22-processor-3" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">23</span>
+    <h3 class="card-title">Diagram 4</h3>
+    <span class="card-meta">23-processor-4.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/23-processor-4.svg" alt="23-processor-4" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">24</span>
+    <h3 class="card-title">Diagram 5</h3>
+    <span class="card-meta">24-processor-5.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/24-processor-5.svg" alt="24-processor-5" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">25</span>
+    <h3 class="card-title">Diagram 6</h3>
+    <span class="card-meta">25-processor-6.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/25-processor-6.svg" alt="25-processor-6" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">26</span>
+    <h3 class="card-title">Diagram 7</h3>
+    <span class="card-meta">26-processor-7.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/26-processor-7.svg" alt="26-processor-7" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">27</span>
+    <h3 class="card-title">Diagram 8</h3>
+    <span class="card-meta">27-processor-8.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/27-processor-8.svg" alt="27-processor-8" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">28</span>
+    <h3 class="card-title">Diagram 9</h3>
+    <span class="card-meta">28-processor-9.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/28-processor-9.svg" alt="28-processor-9" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-02">
+  <div class="section-head">
+    <h2 class="section-title">Deep · Chips</h2>
+    <span class="section-source">intro/deep/chips.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">29</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">29-chips-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/29-chips-1.svg" alt="29-chips-1" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">30</span>
+    <h3 class="card-title">Diagram 2</h3>
+    <span class="card-meta">30-chips-2.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/30-chips-2.svg" alt="30-chips-2" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">31</span>
+    <h3 class="card-title">Diagram 3</h3>
+    <span class="card-meta">31-chips-3.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/31-chips-3.svg" alt="31-chips-3" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">32</span>
+    <h3 class="card-title">Diagram 4</h3>
+    <span class="card-meta">32-chips-4.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/32-chips-4.svg" alt="32-chips-4" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">33</span>
+    <h3 class="card-title">Diagram 5</h3>
+    <span class="card-meta">33-chips-5.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/33-chips-5.svg" alt="33-chips-5" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">34</span>
+    <h3 class="card-title">Diagram 6</h3>
+    <span class="card-meta">34-chips-6.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/34-chips-6.svg" alt="34-chips-6" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-03">
+  <div class="section-head">
+    <h2 class="section-title">Deep · Arithmetization</h2>
+    <span class="section-source">intro/deep/arithmetization.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">35</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">35-arithmetization-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/35-arithmetization-1.svg" alt="35-arithmetization-1" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">36</span>
+    <h3 class="card-title">Diagram 2</h3>
+    <span class="card-meta">36-arithmetization-2.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/36-arithmetization-2.svg" alt="36-arithmetization-2" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">37</span>
+    <h3 class="card-title">Diagram 3</h3>
+    <span class="card-meta">37-arithmetization-3.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/37-arithmetization-3.svg" alt="37-arithmetization-3" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-04">
+  <div class="section-head">
+    <h2 class="section-title">Deep · The proving pipeline</h2>
+    <span class="section-source">intro/deep/pipeline.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">38</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">38-deep-pipeline-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/38-deep-pipeline-1.svg" alt="38-deep-pipeline-1" />
+  </div>
+</div>
+<div class="card">
+  <div class="card-head">
+    <span class="card-num">39</span>
+    <h3 class="card-title">Diagram 2</h3>
+    <span class="card-meta">39-deep-pipeline-2.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/39-deep-pipeline-2.svg" alt="39-deep-pipeline-2" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-05">
+  <div class="section-head">
+    <h2 class="section-title">Deep · Recursion</h2>
+    <span class="section-source">intro/deep/recursion.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">40</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">40-recursion-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/40-recursion-1.svg" alt="40-recursion-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-06">
+  <div class="section-head">
+    <h2 class="section-title">Deep · The ISA</h2>
+    <span class="section-source">intro/deep/isa.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">41</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">41-isa-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/41-isa-1.svg" alt="41-isa-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-07">
+  <div class="section-head">
+    <h2 class="section-title">Deep · Continuations</h2>
+    <span class="section-source">intro/deep/continuations.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">42</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">42-continuations-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/42-continuations-1.svg" alt="42-continuations-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-08">
+  <div class="section-head">
+    <h2 class="section-title">Prover · Quickstart</h2>
+    <span class="section-source">prover/getting-started/quickstart.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">43</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">43-prover-quickstart-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/43-prover-quickstart-1.svg" alt="43-prover-quickstart-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-09">
+  <div class="section-head">
+    <h2 class="section-title">Prover · Architecture</h2>
+    <span class="section-source">prover/getting-started/architecture.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">44</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">44-prover-architecture-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/44-prover-architecture-1.svg" alt="44-prover-architecture-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-10">
+  <div class="section-head">
+    <h2 class="section-title">Prover · Testing</h2>
+    <span class="section-source">prover/deploying/testing.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">45</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">45-prover-testing-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/45-prover-testing-1.svg" alt="45-prover-testing-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-11">
+  <div class="section-head">
+    <h2 class="section-title">Prover · Docker compose</h2>
+    <span class="section-source">prover/deploying/docker-compose.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">46</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">46-prover-docker-compose-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/46-prover-docker-compose-1.svg" alt="46-prover-docker-compose-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-12">
+  <div class="section-head">
+    <h2 class="section-title">Prover · Linux server</h2>
+    <span class="section-source">prover/deploying/linux-server.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">47</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">47-prover-linux-server-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/47-prover-linux-server-1.svg" alt="47-prover-linux-server-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-13">
+  <div class="section-head">
+    <h2 class="section-title">References · API overview</h2>
+    <span class="section-source">references/api/overview.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">48</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">48-api-overview-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/48-api-overview-1.svg" alt="48-api-overview-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-14">
+  <div class="section-head">
+    <h2 class="section-title">References · API data types</h2>
+    <span class="section-source">references/api/data-types.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">49</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">49-api-data-types-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/49-api-data-types-1.svg" alt="49-api-data-types-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-15">
+  <div class="section-head">
+    <h2 class="section-title">Developer · Proof format</h2>
+    <span class="section-source">developer/proving-programs/proof-format.mdx</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">50</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">50-proof-format-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/50-proof-format-1.svg" alt="50-proof-format-1" />
+  </div>
+</div>
+</section>
+<section class="section" id="sec-16">
+  <div class="section-head">
+    <h2 class="section-title">Intro · Why ZisK</h2>
+    <span class="section-source">intro/introduction/why-zisk.md</span>
+  </div>
+  <div class="card">
+  <div class="card-head">
+    <span class="card-num">51</span>
+    <h3 class="card-title">Diagram 1</h3>
+    <span class="card-meta">51-why-zisk-1.svg</span>
+  </div>
+  <div class="card-body">
+    <img src="svgs/51-why-zisk-1.svg" alt="51-why-zisk-1" />
+  </div>
+</div>
+</section>
+
+</div>
+</body>
+</html>

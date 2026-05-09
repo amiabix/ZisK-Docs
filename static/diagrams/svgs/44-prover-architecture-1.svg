@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1500 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-chip" transform="translate(40,260)">
+    <rect width="240" height="100" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">your code</text>
+    <text class="name" x="120" y="50" text-anchor="middle">Host application</text>
+    <text class="sub" x="120" y="72" text-anchor="middle">RemoteClient</text>
+  </g>
+
+  <g class="n-chip" transform="translate(440,260)">
+    <rect width="240" height="100" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">orchestrator</text>
+    <text class="name" x="120" y="58" text-anchor="middle">Coordinator</text>
+  </g>
+
+  <g class="n-chip" transform="translate(880,40)">
+    <rect width="280" height="100" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">worker · 1</text>
+    <text class="name" x="140" y="50" text-anchor="middle">Worker 1</text>
+    <text class="sub" x="140" y="72" text-anchor="middle">segments 1, 4, 7</text>
+  </g>
+  <g class="n-chip" transform="translate(880,260)">
+    <rect width="280" height="100" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">worker · 2</text>
+    <text class="name" x="140" y="50" text-anchor="middle">Worker 2</text>
+    <text class="sub" x="140" y="72" text-anchor="middle">segments 2, 5, 8</text>
+  </g>
+  <g class="n-chip" transform="translate(880,480)">
+    <rect width="280" height="100" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">worker · 3</text>
+    <text class="name" x="140" y="50" text-anchor="middle">Worker 3</text>
+    <text class="sub" x="140" y="72" text-anchor="middle">segments 3, 6, 9</text>
+  </g>
+
+  <!-- Host -> Coord -->
+  <path class="edge" d="M 280 295 L 440 295" marker-end="url(#arr44)"/>
+  <text class="edge-label" x="360" y="285" text-anchor="middle">gRPC :7000</text>
+
+  <!-- Coord -> Workers -->
+  <path class="edge" d="M 680 290 C 780 290, 800 90, 880 90" marker-end="url(#arr44)"/>
+  <text class="edge-label" x="780" y="180" text-anchor="middle">gRPC :50051</text>
+
+  <path class="edge" d="M 680 305 L 880 305" marker-end="url(#arr44)"/>
+  <text class="edge-label" x="780" y="295" text-anchor="middle">gRPC :50051</text>
+
+  <path class="edge" d="M 680 320 C 780 320, 800 530, 880 530" marker-end="url(#arr44)"/>
+  <text class="edge-label" x="780" y="430" text-anchor="middle">gRPC :50051</text>
+
+  <!-- Workers -> Coord (return) -->
+  <path class="edge" d="M 880 110 C 780 110, 760 320, 680 330" marker-end="url(#arr44)"/>
+  <path class="edge" d="M 880 325 C 800 325, 760 330, 680 335" marker-end="url(#arr44)"/>
+  <path class="edge" d="M 880 510 C 780 510, 760 340, 680 340" marker-end="url(#arr44)"/>
+
+  <!-- Coord -> Host (return) -->
+  <path class="edge" d="M 440 330 L 280 330" marker-end="url(#arr44)"/>
+  <text class="edge-label" x="360" y="350" text-anchor="middle">final proof</text>
+</svg>

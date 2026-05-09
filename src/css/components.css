@@ -1,0 +1,256 @@
+/* ────────────────────────────────────────────────────
+   Components: Code · Tables · Admonitions · Tabs · Details
+   ──────────────────────────────────────────────────── */
+
+/* ── Summary ── */
+
+.summary {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--zisk-victorian-peak);
+  border-radius: var(--zisk-radius);
+  padding: 0.75rem 1.25rem;
+  margin: 1.5rem 0;
+  background: var(--zisk-panel-bg);
+  color: var(--zisk-text-light);
+  font-size: 1rem;
+  line-height: 1.8;
+  box-shadow: var(--zisk-shadow-md);
+  min-height: 4rem;
+  display: flex;
+  align-items: center;
+}
+
+.summary p {
+  margin: 0;
+}
+
+/* ── Inline code ── */
+
+code {
+  border: 1px solid var(--zisk-silver-dark);
+  background: var(--zisk-silver);
+  color: var(--zisk-gray-dark);
+  font-size: 0.875em;
+}
+
+.theme-code-block code {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* ── Code blocks ── */
+
+.theme-code-block {
+  border-radius: var(--zisk-radius);
+  box-shadow: var(--zisk-shadow-md);
+}
+
+/* codeBlockLines uses float:left in Docusaurus's CSS module, which
+   creates its own block formatting context. On iOS Safari and Android
+   Chrome a float that is wider than the viewport is treated as a
+   separate layout unit and can have its font metrics inflated
+   independently, even when text-size-adjust is set on ancestors.
+   Switching to display:inline-block keeps the same scrolling behaviour
+   (min-width:100% still fills the container) while preventing the
+   float-BFC issue. Font sizes in px are immune to any browser scaling
+   algorithm and guarantee identical rendering regardless of scroll
+   width. */
+.theme-code-block [class*="codeBlockLines"] {
+  display: inline-block;
+  min-width: 100%;
+}
+
+.theme-code-block pre {
+  overflow-x: auto;
+  margin: 0;
+  font-family: var(--zisk-font-mono) !important;
+  font-size: 14px !important;
+  line-height: 1.6 !important;
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: var(--zisk-border-dark) transparent;
+}
+
+.theme-code-block pre,
+.theme-code-block code,
+.theme-code-block [class*="codeBlockLines"] {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+@media (max-width: 768px) {
+  .theme-code-block pre,
+  .theme-code-block code,
+  .theme-code-block [class*="codeBlockLines"] {
+    font-size: 12px !important;
+  }
+}
+
+/* Webkit scrollbar — direct pseudo-element rules to override Infima's
+   thin-scrollbar class, which would otherwise render a 7px light-gray
+   bar on the dark code background whenever content overflows. */
+.theme-code-block pre::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+
+.theme-code-block pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.theme-code-block pre::-webkit-scrollbar-thumb {
+  background: var(--zisk-border-dark);
+  border-radius: 10px;
+}
+
+.theme-code-block pre::-webkit-scrollbar-thumb:hover {
+  background: var(--zisk-text-muted);
+}
+
+.theme-code-block [class*="codeBlockTitle"] {
+  background: var(--zisk-panel-bg);
+  color: rgba(255, 255, 255, 0.55);
+  font-family: var(--zisk-font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ── bash-profiling — Cascadia Code for box-drawing character support ── */
+
+.theme-code-block pre.language-bash-profiling {
+  font-family: var(--zisk-font-vs-mono) !important;
+}
+
+/* ── Tables ── */
+
+.theme-doc-markdown table,
+.markdown table {
+  display: table;
+  width: 100%;
+  border-radius: 0.75rem;
+  box-shadow: var(--zisk-shadow-sm);
+}
+
+.theme-doc-markdown table th,
+.markdown table th {
+  background: var(--zisk-midnight);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: var(--zisk-font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 12px 18px;
+  white-space: nowrap;
+}
+
+.theme-doc-markdown table th:first-child,
+.markdown table th:first-child {
+  border-top-left-radius: 0.75rem;
+}
+
+.theme-doc-markdown table th:last-child,
+.markdown table th:last-child {
+  border-top-right-radius: 0.75rem;
+}
+
+.theme-doc-markdown table td,
+.markdown table td {
+  font-size: var(--zisk-font-size-sm);
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--zisk-silver-light);
+  color: var(--zisk-gray);
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.theme-doc-markdown table tr:last-child td,
+.markdown table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Responsive tables ── */
+
+@media (max-width: 768px) {
+  .theme-doc-markdown table,
+  .markdown table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    border-radius: 0.75rem;
+  }
+
+  .theme-doc-markdown table th,
+  .markdown table th {
+    white-space: nowrap;
+  }
+
+  .theme-doc-markdown table td,
+  .markdown table td {
+    min-width: 8rem;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+}
+
+/* ── Admonitions ── */
+
+.alert {
+  border-radius: var(--zisk-radius);
+  border: none;
+  border-left: 3px solid var(--ifm-alert-border-color);
+  color: var(--zisk-gray-dark);
+}
+
+.alert--note, .alert--secondary {
+  --ifm-alert-border-color:      var(--zisk-silver-dark);
+  --ifm-alert-foreground-color:  var(--zisk-gray);
+  background: color-mix(in srgb, var(--zisk-silver-dark) 12%, white);
+}
+
+.alert--tip, .alert--success {
+  --ifm-alert-border-color:      var(--zisk-victorian-peak);
+  --ifm-alert-foreground-color:  var(--zisk-victorian-peak);
+  background: color-mix(in srgb, var(--zisk-victorian-peak) 6%, white);
+}
+
+.alert--info {
+  --ifm-alert-border-color:      var(--zisk-soft-green);
+  --ifm-alert-foreground-color:  var(--zisk-soft-green);
+  background: color-mix(in srgb, var(--zisk-soft-green) 6%, white);
+}
+
+.alert--warning {
+  --ifm-alert-border-color:      var(--zisk-alert-warning-border);
+  --ifm-alert-foreground-color:  var(--zisk-alert-warning-text);
+  background: color-mix(in srgb, var(--zisk-busy-bee) 15%, white);
+}
+
+.alert--danger {
+  --ifm-alert-border-color:      var(--zisk-alert-danger);
+  --ifm-alert-foreground-color:  var(--zisk-alert-danger);
+  background: color-mix(in srgb, var(--zisk-alert-danger) 6%, white);
+}
+
+/* ── Tabs ── */
+
+.tabs__item--active {
+  border-bottom-color: var(--zisk-victorian-peak) !important;
+  color: var(--zisk-victorian-peak) !important;
+}
+
+/* ── Diagram SVGs ── consistent sizing across all doc pages ── */
+
+.markdown img[src*="/diagrams/svgs/"] {
+  display: block;
+  width: 100%;
+  max-width: 1100px;
+  height: auto;
+  margin: 1.75rem auto;
+  background: transparent;
+}

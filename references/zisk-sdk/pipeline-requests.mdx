@@ -1,0 +1,400 @@
+---
+id: pipeline-requests
+title: Pipeline requests
+sidebar_position: 9
+displayed_sidebar: referencesSidebar
+description: Builder-pattern request types for SDK pipeline operations.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Pipeline operations on a `ProverClient` are exposed as builder requests. Chain configuration methods, then call `.run()` to submit the job and receive a `JobHandle<T>`. `UploadRequest` is the synchronous exception.
+
+</Summary>
+
+## What pipeline requests are
+
+Every operation on a `ProverClient` returns a request builder, not a result. The builder carries the call's parameters; calling `.run()` submits the job to the backend and returns either a `JobHandle<T>` (for asynchronous operations) or an `UploadResult` (for the one synchronous case).
+
+```rust
+use zisk_sdk::{ProverClient, ZiskStdin, ExecutorKind};
+use std::time::Duration;
+
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+
+let handle = client
+    .prove(&program, stdin)
+    .executor(ExecutorKind::Assembly)
+    .timeout(Duration::from_secs(300))
+    .run()?;
+
+let result = handle.await?;
+```
+
+The builder pattern means each configuration call takes `self`, mutates internal state, and returns `Self` for chaining. `.run()` consumes the builder and submits the job.
+
+The request surface is **mostly** the same on `EmbeddedClient` and `RemoteClient`. The five core requests (`UploadRequest`, `SetupRequest`, `ExecuteRequest`, `ProveRequest`, `WrapRequest`) are identical across both backends; only the underlying execution path differs (embedded runs locally, remote dispatches over gRPC). `VerifyConstraintsRequest` is the exception and is only available on `EmbeddedClient`.
+
+## Request types
+
+| Request                    | Available on    | Configuration methods                                              | `.run()` returns                            |
+| -------------------------- | --------------- | ------------------------------------------------------------------ | ------------------------------------------- |
+| `UploadRequest`            | Both            | `.run()`                                                           | `Result<UploadResult>` (synchronous)         |
+| `SetupRequest`             | Both            | `.with_hints()`, `.timeout()`, `.output_dir()`                     | `Result<JobHandle<SetupResult>>`            |
+| `ExecuteRequest`           | Both            | `.hints()`, `.executor()`, `.timeout()`                            | `Result<JobHandle<ExecuteResult>>`          |
+| `ProveRequest`             | Both            | `.hints()`, `.executor()`, `.timeout()`, `.wrap()`, `.on()`        | `Result<JobHandle<ProveResult>>`            |
+| `WrapRequest`              | Both            | `.with_publics()`, `.with_program_vk()`, `.timeout()`              | `Result<JobHandle<ProveResult>>`            |
+| `VerifyConstraintsRequest` | Embedded only   | `.debug_info()`, `.timeout()`                                      | `Result<JobHandle<VerifyConstraintsResult>>` |
+
+Every method on every request is `#[must_use]`, so dropping a builder partway through a chain triggers a compiler warning.
+
+---
+
+## UploadRequest
+
+Register the guest ELF with the backend.
+
+```rust
+pub struct UploadRequest<'a, C> { /* opaque */ }
+```
+
+The shape of the call is the same on both clients, but the work done at `.run()` differs:
+
+- **Embedded client**: a no-op. The program is already local, so there is nothing to upload.
+- **Remote client**: registers the ELF with the coordinator and verifies the returned `hash_id` matches the program's local hash.
+
+#### .run
+
+```rust
+pub fn run(self) -> Result<UploadResult>
+```
+
+Synchronous. There is no `JobHandle` for this operation because there is nothing to await; the work is either trivial (Embedded) or completes within the RPC roundtrip (Remote).
+
+`UploadResult` carries the program hash:
+
+```rust
+pub struct UploadResult { /* opaque */ }
+impl UploadResult {
+    pub fn hash_id(&self) -> &str;
+}
+```
+
+#### Example
+
+```rust
+let result = client.upload(&program).run()?;
+println!("hash_id: {}", result.hash_id());
+```
+
+:::note
+Most workflows call `upload` once per program at startup, then reuse the program across many prove or execute jobs. On Remote clients this populates the coordinator's program cache so subsequent setup and prove jobs can reference the program by hash. On Embedded, the call is essentially free.
+:::
+
+---
+
+## SetupRequest
+
+Derive the program verification key and proving artifacts for a guest ELF. Required once per program before proving.
+
+```rust
+pub struct SetupRequest<'a, C> { /* opaque */ }
+```
+
+### Methods
+
+```rust
+#[must_use] pub fn with_hints(self) -> Self
+#[must_use] pub fn timeout(self, duration: Duration) -> Self
+#[must_use] pub fn output_dir(self, dir: PathBuf) -> Self
+            pub fn run(self)                       -> Result<JobHandle<SetupResult>>
+```
+
+#### `with_hints`
+
+Enables hint support during ROM setup. Required when subsequent prove or execute calls will pass hints. Setup performed without `.with_hints()` produces artifacts that reject hinted prove calls; setup performed with `.with_hints()` requires hints on every prove call (`embedded/prove.rs:103-106`). Requires the Assembly executor on the client builder.
+
+#### `timeout`
+
+Sets a maximum duration for the setup job. ROM setup can take several minutes for large guests; allow 10 minutes (600 s) or more for production-sized programs.
+
+#### `output_dir`
+
+Specifies where the verkey file is written after setup completes. Defaults to `$HOME/.zisk/cache/` (the standard ZisK cache path) when not set; the resolution falls back through `get_output_path(None)` (`rom-setup/src/utils.rs:28-46`).
+
+The on-disk file name is **not** simply `{hash_id}.vk`. It is constructed by `get_elf_bin_verkey_file_path_with_hash` (`rom-setup/src/utils.rs:116-134`):
+
+```text
+{hash_id}_{pilout_hash}_{rom_rows}_{rom_blowup_factor}_{rom_merkle_tree_arity}.verkey.bin
+```
+
+The trailing fields make the file specific to the ZisK circuit version, so a key generated for one circuit cannot accidentally be reused after a circuit change.
+
+#### `.run` and the hidden post-process
+
+```rust
+pub fn run(self) -> Result<JobHandle<SetupResult>>
+```
+
+`run()` submits the setup and returns a `JobHandle<SetupResult>`. `SetupResult` carries only the optional `JobId` (for remote setups); the verkey itself is **not** in the result struct.
+
+`run()` registers a pre-process callback on the returned handle that fires when the job reaches `Completed` (`setup.rs:71-78`). The callback writes the verkey bytes to the on-disk path described above. From the caller's perspective:
+
+- Awaiting the handle blocks until setup completes AND the verkey file has been written.
+- If the file write fails (permission denied, disk full, etc.), the await surfaces the error.
+- If you do not await the handle, the verkey file is never written.
+
+#### Example
+
+```rust
+use std::path::PathBuf;
+use std::time::Duration;
+
+let result = client
+    .setup(&program)
+    .with_hints()
+    .output_dir(PathBuf::from("/tmp/commitments"))
+    .timeout(Duration::from_secs(600))
+    .run()?
+    .await?;
+```
+
+:::warning
+ROM setup can be computationally expensive for large programs. A timeout of 10 minutes (600 s) or higher is reasonable for production-sized guests; the default of `None` lets the job run as long as it needs.
+:::
+
+---
+
+## ExecuteRequest
+
+Run the guest through the proving pipeline without generating a proof. Useful for input validation and cycle counting before paying full proving cost.
+
+```rust
+pub struct ExecuteRequest<'a, C> { /* opaque */ }
+```
+
+### Methods
+
+```rust
+#[must_use] pub fn hints(self, hints: impl Into<HintsSource>) -> Self
+#[must_use] pub fn executor(self, executor: ExecutorKind)    -> Self
+#[must_use] pub fn timeout(self, duration: Duration)         -> Self
+            pub fn run(self) -> Result<JobHandle<ExecuteResult>>
+```
+
+`.hints()` accepts either a `ZiskHints` or a `ZiskStream` (both implement `Into<HintsSource>`). Requires the Assembly executor and a setup performed with `.with_hints()`.
+
+`.executor()` overrides the per-call executor. Defaults to `ExecutorKind::Emulator` if not set (`execute.rs:89`), regardless of what the client builder configured.
+
+`ExecuteResult` derefs to `ExecuteOutput`, exposing cycle counts, durations, and per-component cost breakdown:
+
+```rust
+result.get_execution_steps();
+result.get_execution_time();
+```
+
+`ExecuteRequest` does **not** support event callbacks via `.on()`. Only `ProveRequest` does.
+
+#### Example
+
+```rust
+use zisk_sdk::ExecutorKind;
+use std::time::Duration;
+
+let result = client
+    .execute(&program, stdin)
+    .executor(ExecutorKind::Assembly)
+    .timeout(Duration::from_secs(60))
+    .run()?
+    .await?;
+
+println!("steps: {}", result.get_execution_steps());
+```
+
+---
+
+## ProveRequest
+
+Generate a proof of guest execution. The most-used pipeline operation.
+
+```rust
+pub struct ProveRequest<'a, C> { /* opaque */ }
+```
+
+### Methods
+
+```rust
+#[must_use] pub fn hints(self, hints: impl Into<HintsSource>) -> Self
+#[must_use] pub fn executor(self, executor: ExecutorKind)    -> Self
+#[must_use] pub fn timeout(self, duration: Duration)         -> Self
+#[must_use] pub fn wrap(self, kind: ProofKind)               -> Self
+#[must_use] pub fn on(
+    self,
+    event: JobEvent,
+    cb: impl Fn(JobEvent) + Send + Sync + 'static,
+)                                                            -> Self
+            pub fn run(self) -> Result<JobHandle<ProveResult>>
+```
+
+#### Defaults
+
+- **Proof kind**: `ProofKind::default()` = `VadcopFinal` (`prove.rs:89`). Note that this is **not** the builder's `proof_kind` (which controls Plonk capability, not output format). See [Proof kinds](/references/zisk-sdk/proof-kinds#where-the-kind-is-set) for the full split.
+- **Executor**: `ExecutorKind::Emulator` if not set (`prove.rs:142`).
+- **Hints, timeout**: none.
+
+#### `.wrap(kind)`
+
+Sets the output proof kind for this prove call. The dispatcher in `do_prove_inner` routes each kind:
+
+- `VadcopFinal` → no wrap, raw final proof.
+- `VadcopFinalMinimal` → calls `prove.wrap_proof(VadcopFinalMinimal)`.
+- `Plonk` → calls `prove.wrap_proof(Plonk)`. Requires the client to be Plonk-capable (`.plonk()` on the builder, or `EmbeddedOpts::preload_plonk()`).
+
+#### `.on(event, cb)`
+
+Registers a pre-submit event callback. Subscribers fire when the matching `JobEvent` is emitted during the run (`Started`, `Progress(u8)`, `Completed`, `Failed(String)`). Use `JobEvent::All` as the event filter to receive every event.
+
+Callbacks must be `Send + Sync + 'static`. Multiple callbacks for the same event fire in registration order, synchronously on the task that emits the event. See [JobEvent](/references/zisk-sdk/job-events) for the full event surface and dispatch semantics.
+
+#### Example
+
+```rust
+use zisk_sdk::{ProofKind, JobEvent};
+use std::time::Duration;
+
+let result = client
+    .prove(&program, stdin)
+    .wrap(ProofKind::Plonk)
+    .timeout(Duration::from_secs(300))
+    .on(JobEvent::Progress(0), |ev| {
+        if let JobEvent::Progress(pct) = ev {
+            println!("{}% complete", pct);
+        }
+    })
+    .run()?
+    .await?;
+
+result.verify()?;
+```
+
+`ProveResult` derefs to `ProveOutput` and exposes the proof itself plus metadata (`get_proving_time`, `get_execution_steps`, etc.). The proof is the canonical artifact and can be saved to disk via `result.save_proof(path)`.
+
+---
+
+## WrapRequest
+
+Convert an existing proof to a different `ProofKind` without re-executing the guest.
+
+```rust
+pub struct WrapRequest<'a, C> { /* opaque */ }
+```
+
+### Methods
+
+```rust
+#[must_use] pub fn with_publics(self, publics: PublicValues)        -> Self
+#[must_use] pub fn with_program_vk(self, program_vk: ProgramVK)     -> Self
+#[must_use] pub fn timeout(self, duration: Duration)                -> Self
+            pub fn run(self) -> Result<JobHandle<ProveResult>>
+```
+
+#### Override semantics
+
+`WrapRequest::with_publics` and `with_program_vk` take the override values **by value**, not by reference. They consume the supplied `PublicValues` / `ProgramVK` and store them on the builder. This differs from `Proof::with_publics(&pv)` and `Proof::with_program_vk(&vk)` (covered on the [Proof](/references/zisk-sdk/proof) page) which take borrows for verification-time substitution.
+
+The two APIs solve different problems:
+
+- `Proof::with_*` overrides what the verifier checks against. The proof is unchanged.
+- `WrapRequest::with_*` overrides what the *new* (wrapped) proof attests to. The result is a different proof.
+
+Use `WrapRequest::with_*` when wrapping needs to produce a proof for different public values or a different program key than the source proof carries.
+
+#### Source proof requirement
+
+The source proof must be `VadcopFinal`. Wrapping a `VadcopFinalMinimal` or `Plonk` proof to another format is not supported; the prover backend rejects the request.
+
+#### Example
+
+```rust
+use zisk_sdk::ProofKind;
+use std::time::Duration;
+
+let stark_proof = Proof::load("proof.bin")?;
+
+let plonk_proof = client
+    .wrap_proof(&stark_proof, ProofKind::Plonk)
+    .timeout(Duration::from_secs(120))
+    .run()?
+    .await?;
+
+plonk_proof.save("proof_plonk.bin")?;
+```
+
+---
+
+## VerifyConstraintsRequest
+
+Verify the guest's constraints without producing a proof. Returns trace stats and constraint-satisfaction status.
+
+```rust
+pub struct VerifyConstraintsRequest<'a, C> { /* opaque */ }
+```
+
+### Availability
+
+`VerifyConstraintsRequest` is reachable only on `EmbeddedClient`, through the `VerifyConstraintsExtension` trait. The trait must be imported explicitly:
+
+```rust
+use zisk_sdk::VerifyConstraintsExtension;
+```
+
+Importing the trait on a `RemoteClient` produces a compile-time error: *"`RemoteClient` does not support verify_constraints — RemoteClient cannot run this operation because the coordinator does not yet have a VerifyConstraints job kind"* (`verify_constraints.rs:122-126`). The `#[diagnostic::on_unimplemented]` attribute on the trait surfaces this directly in `rustc` output.
+
+`VerifyConstraintsRequest` does **not** expose `.hints()`. The CLI's `cargo-zisk verify-constraints --hints` flag uses a lower-level `register_hints_stream` path on the prover that the SDK request builder does not surface.
+
+### Methods
+
+```rust
+#[must_use] pub fn debug_info(self, path: impl Into<Option<String>>) -> Self
+#[must_use] pub fn timeout(self, duration: Duration)                  -> Self
+            pub fn run(self) -> Result<JobHandle<VerifyConstraintsResult>>
+```
+
+#### `.debug_info(path)`
+
+Three-state argument:
+
+- `None` (or not called) → no debug info written.
+- `Some(None)` → debug info written to the default path.
+- `Some(Some(path))` → debug info written to the explicit path.
+
+The `impl Into<Option<String>>` parameter lets you pass `None` to disable, `"/tmp/debug.txt"` to enable with a path, or `Some(path_string)` for the same.
+
+#### Example
+
+```rust
+use zisk_sdk::VerifyConstraintsExtension;
+use std::time::Duration;
+
+let result = client
+    .verify_constraints(&program, stdin)
+    .debug_info(Some("/tmp/debug.txt".to_string()))
+    .timeout(Duration::from_secs(300))
+    .run()?
+    .await?;
+```
+
+`VerifyConstraintsResult` derefs to `VerifyConstraintsOutput` and exposes the same execution stats as `ExecuteResult` plus constraint-satisfaction information.
+
+---
+
+## See also
+
+- [JobHandle](/references/zisk-sdk/job-handle): in-flight job control and awaiting.
+- [JobEvent](/references/zisk-sdk/job-events): event variants and dispatch semantics.
+- [ProofKind](/references/zisk-sdk/proof-kinds): proof format selection and the builder-vs-request split.
+- [Client builders](/references/zisk-sdk/prover-client-builder): client configuration including Plonk capability.
+- [ProverClient](/references/zisk-sdk/prover-client): factory entry point.

@@ -1,0 +1,2502 @@
+---
+id: bls12-381
+title: BLS12-381
+sidebar_position: 6
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`zisklib` functions for BLS12-381 field arithmetic (Fp, Fp2, Fr),
+G1 and G2 curve operations, pairing computations, KZG verification,
+and hash-to-curve helpers.
+
+</Summary>
+
+## Module overview
+
+BLS12-381 is the pairing-friendly curve behind Ethereum BLS
+aggregate signatures (EIP-2537), Filecoin proofs, Zcash Sapling,
+the validator signatures that secure Ethereum consensus, and the
+KZG commitments used by the Ethereum blob market (EIP-4844).
+
+Its base field is ~381 bits wide compared to BN254's ~254 bits, so
+each field op and pairing is more expensive, but the curve
+delivers a stable ~128-bit security target after recent advances
+in finite-field discrete log attacks ruled BN254 below that bar.
+
+The type hierarchy:
+
+- **Fp** is the base field, integers mod the prime `p` (~381 bits).
+  G1 coordinates live here.
+- **Fp2** is the quadratic extension. G2 coordinates live here.
+- **Fp6** is the cubic extension over Fp2; **Fp12** is the
+  quadratic extension over Fp6 and the pairing target.
+- **Fr** is the scalar field, integers mod the subgroup order `r`.
+  Used for scalar multiplication on G1 and G2.
+- **G1** is the curve `y² = x³ + 4` over Fp.
+- **G2** is the twisted curve over Fp2.
+- **Pairing** is the bilinear map `e: G1 × G2 → Fp12`. The Miller
+  loop accumulates line evaluations and final exponentiation
+  projects the result into the order-`r` subgroup of Fp12, the
+  cyclotomic subgroup `GΦ₆(p²)`, where pairing equality is
+  decided.
+- **KZG** is a polynomial commitment scheme built on the pairing.
+  An opening of a polynomial `f` at point `z` to value `y` is
+  verified with one pairing equation in BLS12-381; this is the
+  primitive Ethereum blobs use.
+
+:::note
+G1 points are `[u64; 12]` (x ++ y, 6 LE limbs per coordinate, 384 bits each).
+G2 points are `[u64; 24]` (Fp2 x ++ Fp2 y, 6 LE limbs per Fp element).
+GT elements (Fp12) are `[u64; 72]`.
+:::
+
+:::info Hints feature gate
+Most signatures take a final `#[cfg(feature = "hints")] hints: &mut Vec<u64>`
+parameter. The argument is only present when the crate is built with the
+`hints` Cargo feature; without it the parameter (and the corresponding
+call-site argument) is removed by `cfg`. Pass a mutable `Vec<u64>` collector
+to record syscall hints, used by the prover to seed nondeterministic
+witness data.
+:::
+
+---
+
+## Base field (Fp)
+
+Arithmetic mod the BLS12-381 base prime `p` (~381 bits, 6 LE
+limbs). Fp is the foundation for every other layer on this page:
+G1 coordinates, the components of Fp2, and ultimately Fp12 are
+all expressed as towers over Fp.
+
+<FnPanel>
+
+<FnDef name="sgn0_fp_bls12_381">
+
+Returns the sign of an Fp element: the least significant bit of
+its canonical representative, as defined in RFC 9380.
+
+```rust
+pub fn sgn0_fp_bls12_381(x: &[u64; 6]) -> u64
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | BLS12-381 Fp element as 6 LE limbs. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `u64` | `0` if the element is even, `1` if odd (LSB of the canonical representative). |
+
+#### Example
+
+```rust
+let sign = zisklib::sgn0_fp_bls12_381(&x_limbs);
+```
+
+</FnDef>
+
+<FnDef name="add_fp_bls12_381">
+
+Addition in the BLS12-381 base field Fp.
+
+```rust
+pub fn add_fp_bls12_381(
+    x: &[u64; 6],
+    y: &[u64; 6],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | First Fp operand as 6 LE limbs. |
+| `y` | `&[u64; 6]` | Second Fp operand as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | `x + y mod p` in the BLS12-381 base field. |
+
+</FnDef>
+
+<FnDef name="dbl_fp_bls12_381">
+
+Doubling in the BLS12-381 base field Fp.
+
+```rust
+pub fn dbl_fp_bls12_381(x: &[u64; 6], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | Fp element as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | `2·x mod p` in the BLS12-381 base field. |
+
+</FnDef>
+
+<FnDef name="sub_fp_bls12_381">
+
+Subtraction in the BLS12-381 base field Fp.
+
+```rust
+pub fn sub_fp_bls12_381(
+    x: &[u64; 6],
+    y: &[u64; 6],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | Minuend as 6 LE limbs. |
+| `y` | `&[u64; 6]` | Subtrahend as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | `(x - y) mod p` in the BLS12-381 base field. |
+
+</FnDef>
+
+<FnDef name="neg_fp_bls12_381">
+
+Negation in the BLS12-381 base field Fp.
+
+```rust
+pub fn neg_fp_bls12_381(x: &[u64; 6], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | Fp element as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | `p - x mod p`. |
+
+</FnDef>
+
+<FnDef name="mul_fp_bls12_381">
+
+Multiplication in the BLS12-381 base field Fp.
+
+```rust
+pub fn mul_fp_bls12_381(
+    x: &[u64; 6],
+    y: &[u64; 6],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | First Fp operand as 6 LE limbs. |
+| `y` | `&[u64; 6]` | Second Fp operand as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | `x * y mod p` in the BLS12-381 base field. |
+
+</FnDef>
+
+<FnDef name="square_fp_bls12_381">
+
+Squaring in the BLS12-381 base field Fp.
+
+```rust
+pub fn square_fp_bls12_381(
+    x: &[u64; 6],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | Fp element to square, as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | `x² mod p` in the BLS12-381 base field. |
+
+</FnDef>
+
+<FnDef name="sqrt_fp_bls12_381">
+
+Square root in the BLS12-381 base field Fp. Returns
+`(result, is_quadratic_residue)`.
+
+```rust
+pub fn sqrt_fp_bls12_381(
+    x: &[u64; 6],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> ([u64; 6], bool)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | Fp element as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `([u64; 6], bool)` | The square root and `true` if `x` is a quadratic residue, or an unspecified value and `false` otherwise. |
+
+</FnDef>
+
+<FnDef name="inv_fp_bls12_381">
+
+Inversion in the BLS12-381 base field Fp. Internally verifies
+that x · result ≡ 1.
+
+```rust
+pub fn inv_fp_bls12_381(x: &[u64; 6], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 6]` | Non-zero Fp element as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | `x⁻¹ mod p` in the BLS12-381 base field. |
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Extension field (Fp2)
+
+The quadratic extension Fp2 = Fp[u] / (u² + 1). Elements are pairs
+(re, im) of Fp values. G2 coordinates are Fp2 elements, and Fp6
+and Fp12 are towers built on top of Fp2, so this section feeds
+both the G2 twist and the pairing target.
+
+<FnPanel>
+
+<FnDef name="sgn0_fp2_bls12_381">
+
+Sign of a BLS12-381 Fp2 element, as defined in RFC 9380 for
+hash-to-curve.
+
+```rust
+pub fn sgn0_fp2_bls12_381(x: &[u64; 12]) -> u64
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 12]` | BLS12-381 Fp2 element as 12 LE limbs. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `u64` | The sign bit as defined in RFC 9380: based on the LSB of the first non-zero component. |
+
+</FnDef>
+
+<FnDef name="add_fp2_bls12_381">
+
+Addition in the BLS12-381 extension field Fp2. Elements are
+`[u64; 12]` (real ++ imaginary, 6 LE limbs each).
+
+```rust
+pub fn add_fp2_bls12_381(
+    a: &[u64; 12],
+    b: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | First Fp2 element as 12 LE limbs (real ++ imaginary). |
+| `b` | `&[u64; 12]` | Second Fp2 element as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `a + b` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="dbl_fp2_bls12_381">
+
+Doubling in the BLS12-381 extension field Fp2.
+
+```rust
+pub fn dbl_fp2_bls12_381(
+    a: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | Fp2 element as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `2·a` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="neg_fp2_bls12_381">
+
+Negation in the BLS12-381 extension field Fp2.
+
+```rust
+pub fn neg_fp2_bls12_381(
+    a: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | Fp2 element as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `-a` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="sub_fp2_bls12_381">
+
+Subtraction in the BLS12-381 extension field Fp2.
+
+```rust
+pub fn sub_fp2_bls12_381(
+    a: &[u64; 12],
+    b: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | Minuend as 12 LE limbs. |
+| `b` | `&[u64; 12]` | Subtrahend as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `a - b` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="mul_fp2_bls12_381">
+
+Multiplication in the BLS12-381 extension field Fp2.
+
+```rust
+pub fn mul_fp2_bls12_381(
+    a: &[u64; 12],
+    b: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | First Fp2 element as 12 LE limbs. |
+| `b` | `&[u64; 12]` | Second Fp2 element as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `a * b` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="scalar_mul_fp2_bls12_381">
+
+Scalar multiplication of an Fp2 element by an Fp scalar.
+
+```rust
+pub fn scalar_mul_fp2_bls12_381(
+    a: &[u64; 12],
+    b: &[u64; 6],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | Fp2 element as 12 LE limbs. |
+| `b` | `&[u64; 6]` | Fp scalar as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `b · a` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="square_fp2_bls12_381">
+
+Squaring in the BLS12-381 extension field Fp2.
+
+```rust
+pub fn square_fp2_bls12_381(
+    a: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | Fp2 element to square, as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `a²` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="sqrt_fp2_bls12_381">
+
+Square root in the BLS12-381 extension field Fp2. Returns
+`(result, is_quadratic_residue)`.
+
+```rust
+pub fn sqrt_fp2_bls12_381(
+    x: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> ([u64; 12], bool)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 12]` | Fp2 element as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `([u64; 12], bool)` | The square root and `true` if `x` is a quadratic residue in Fp2, or an unspecified value and `false` otherwise. |
+
+</FnDef>
+
+<FnDef name="inv_fp2_bls12_381">
+
+Inversion in the BLS12-381 extension field Fp2. Internally
+verifies that a · result ≡ 1.
+
+```rust
+pub fn inv_fp2_bls12_381(
+    a: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | Non-zero Fp2 element as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `a⁻¹` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="conjugate_fp2_bls12_381">
+
+Complex conjugate in BLS12-381 Fp2: maps (x, y) to (x, −y).
+
+```rust
+pub fn conjugate_fp2_bls12_381(
+    a: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 12]` | Fp2 element as 12 LE limbs (real ++ imaginary). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | The complex conjugate `(a.re, -a.im)` in BLS12-381 Fp2. |
+
+</FnDef>
+
+<FnDef name="bytes_be_to_u64_le_fp2_bls12_381">
+
+Converts a 96-byte big-endian Fp2 element (c0 ++ c1, each 48
+bytes) to 12 little-endian u64 limbs.
+
+```rust
+pub fn bytes_be_to_u64_le_fp2_bls12_381(bytes: &[u8; 96]) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `&[u8; 96]` | Big-endian 96-byte Fp2 (c0 real, then c1 imaginary). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | The same value as 12 little-endian u64 limbs. |
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Scalar field (Fr)
+
+Arithmetic mod the prime-order subgroup order `r`. Fr is the field
+of valid scalar multipliers for G1 and G2. Reducing an arbitrary
+256-bit integer into Fr is the standard preprocessing step before
+calling any of the scalar multiplication routines below.
+
+<FnPanel>
+
+<FnDef name="reduce_fr_bls12_381">
+
+Reduces a 256-bit integer modulo the BLS12-381 scalar field
+order `r`.
+
+```rust
+pub fn reduce_fr_bls12_381(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | 256-bit integer as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x mod r` in the BLS12-381 scalar field. |
+
+</FnDef>
+
+<FnDef name="add_fr_bls12_381">
+
+Addition in the BLS12-381 scalar field Fr.
+
+```rust
+pub fn add_fr_bls12_381(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fr element as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fr element as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x + y mod r` in the BLS12-381 scalar field. |
+
+</FnDef>
+
+<FnDef name="dbl_fr_bls12_381">
+
+Doubling in the BLS12-381 scalar field Fr.
+
+```rust
+pub fn dbl_fr_bls12_381(x: &[u64; 4], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fr element as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `2·x mod r` in the BLS12-381 scalar field. |
+
+</FnDef>
+
+<FnDef name="sub_fr_bls12_381">
+
+Subtraction in the BLS12-381 scalar field Fr.
+
+```rust
+pub fn sub_fr_bls12_381(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Minuend as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Subtrahend as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x - y) mod r` in the BLS12-381 scalar field. |
+
+</FnDef>
+
+<FnDef name="neg_fr_bls12_381">
+
+Negation in the BLS12-381 scalar field Fr.
+
+```rust
+pub fn neg_fr_bls12_381(x: &[u64; 4], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fr element as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `r - x mod r`. |
+
+</FnDef>
+
+<FnDef name="mul_fr_bls12_381">
+
+Multiplication in the BLS12-381 scalar field Fr.
+
+```rust
+pub fn mul_fr_bls12_381(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fr element as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fr element as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x * y mod r` in the BLS12-381 scalar field. |
+
+</FnDef>
+
+<FnDef name="square_fr_bls12_381">
+
+Squaring in the BLS12-381 scalar field Fr.
+
+```rust
+pub fn square_fr_bls12_381(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fr element to square, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x² mod r` in the BLS12-381 scalar field. |
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Utilities
+
+Byte-encoding helpers that convert between the big-endian byte
+formats used by Ethereum precompiles, EIP-2537, and EIP-4844 and
+the little-endian limb arrays consumed by the field and curve
+routines above.
+
+<FnPanel>
+
+<FnDef name="scalar_bytes_be_to_u64_le_bls12_381">
+
+Converts a big-endian 32-byte scalar to 4 little-endian u64
+limbs. Does not perform a canonicity check.
+
+```rust
+pub fn scalar_bytes_be_to_u64_le_bls12_381(bytes: &[u8; 32]) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `&[u8; 32]` | Big-endian 32-byte scalar representation. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | The same value as 4 little-endian u64 limbs. |
+
+</FnDef>
+
+<FnDef name="bytes_be_to_u64_le_fp_bls12_381">
+
+Converts a 48-byte big-endian Fp element to 6 little-endian u64
+limbs.
+
+```rust
+pub fn bytes_be_to_u64_le_fp_bls12_381(bytes: &[u8; 48]) -> [u64; 6]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `&[u8; 48]` | Big-endian 48-byte representation of a BLS12-381 Fp element. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 6]` | The same value as 6 little-endian u64 limbs. |
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## G1 curve
+
+The BLS12-381 curve `y² = x³ + 4` over Fp. G1 points are the
+first input of the pairing and the home for compact public keys
+and KZG commitments. The pairing and KZG sections below consume
+G1 points produced here.
+
+<FnPanel>
+
+<FnDef name="decompress_bls12_381">
+
+Decompresses a 48-byte compressed G1 point (flags in the MSB).
+Returns `Err` if the bytes do not represent a valid G1 point.
+
+```rust
+pub fn decompress_bls12_381(
+    input: &[u8; 48],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 12], &'static str>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `input` | `&[u8; 48]` | Compressed G1 point in the standard ZCash serialization (flags in MSBs). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 12], &'static str>` | `Ok([u64; 12])` with the decompressed affine point (6 LE limbs for x ++ 6 LE limbs for y), or `Err(&'static str)` if invalid. |
+
+</FnDef>
+
+<FnDef name="is_on_curve_bls12_381">
+
+Returns `true` if the G1 point `p` satisfies y² = x³ + 4.
+
+```rust
+pub fn is_on_curve_bls12_381(
+    p: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | Affine G1 point as 6 LE limbs for x ++ 6 LE limbs for y. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if `p` satisfies the BLS12-381 G1 curve equation, `false` otherwise. |
+
+</FnDef>
+
+<FnDef name="is_on_subgroup_bls12_381">
+
+Returns `true` if the G1 point `p` lies in the correct
+prime-order subgroup G1.
+
+```rust
+pub fn is_on_subgroup_bls12_381(
+    p: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | Affine G1 point as 12 LE limbs. Must already satisfy the curve equation. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if `p` is in the prime-order subgroup G1, `false` otherwise. |
+
+</FnDef>
+
+<FnDef name="add_bls12_381">
+
+G1 point addition. Both points must be non-identity and on the
+BLS12-381 curve.
+
+```rust
+pub fn add_bls12_381(
+    p1: &[u64; 12],
+    p2: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 12]` | First G1 point as 12 LE limbs. |
+| `p2` | `&[u64; 12]` | Second G1 point as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `p1 + p2` on BLS12-381 G1. |
+
+</FnDef>
+
+<FnDef name="add_complete_bls12_381">
+
+G1 point addition with input validation, including handling of
+the identity. Returns `Err(code)` if either point is invalid.
+
+```rust
+pub fn add_complete_bls12_381(
+    p1: &[u64; 12],
+    p2: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 12], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 12]` | First G1 point as 12 LE limbs. |
+| `p2` | `&[u64; 12]` | Second G1 point as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 12], u8>` | `Ok([u64; 12])` with `p1 + p2`, or `Err(code)` if either point fails curve membership validation. |
+
+</FnDef>
+
+<FnDef name="neg_bls12_381">
+
+G1 point negation on BLS12-381.
+
+```rust
+pub fn neg_bls12_381(p: &[u64; 12], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 point as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `-p` on BLS12-381 G1 (same x, negated y). |
+
+</FnDef>
+
+<FnDef name="dbl_bls12_381">
+
+G1 point doubling on BLS12-381.
+
+```rust
+pub fn dbl_bls12_381(p: &[u64; 12], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 point to double, as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `2·p` on BLS12-381 G1. |
+
+</FnDef>
+
+<FnDef name="sub_bls12_381">
+
+G1 point subtraction on BLS12-381 (non-identity inputs).
+
+```rust
+pub fn sub_bls12_381(
+    p1: &[u64; 12],
+    p2: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 12]` | Minuend G1 point as 12 LE limbs. |
+| `p2` | `&[u64; 12]` | Subtrahend G1 point as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `p1 - p2` on BLS12-381 G1. |
+
+</FnDef>
+
+<FnDef name="sub_complete_bls12_381">
+
+G1 point subtraction including identity handling.
+
+```rust
+pub fn sub_complete_bls12_381(
+    p1: &[u64; 12],
+    p2: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 12]` | Minuend G1 point as 12 LE limbs (may be identity). |
+| `p2` | `&[u64; 12]` | Subtrahend G1 point as 12 LE limbs (may be identity). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `p1 - p2` on BLS12-381 G1, with identity inputs handled. |
+
+</FnDef>
+
+<FnDef name="scalar_mul_bls12_381">
+
+Scalar multiplication k·p on the BLS12-381 G1 curve. `k` is a
+256-bit scalar encoded as `[u64; 4]`.
+
+```rust
+pub fn scalar_mul_bls12_381(
+    p: &[u64; 12],
+    k: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 base point as 12 LE limbs. |
+| `k` | `&[u64; 4]` | 256-bit scalar as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | The resulting point `k·p` on BLS12-381 G1. |
+
+</FnDef>
+
+<FnDef name="scalar_mul_bin_bls12_381">
+
+Scalar multiplication on BLS12-381 G1 using a binary scalar `k`
+encoded as a big-endian byte slice.
+
+```rust
+pub fn scalar_mul_bin_bls12_381(
+    p: &[u64; 12],
+    k: &[u8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 base point as 12 LE limbs. |
+| `k` | `&[u8]` | Scalar as a big-endian byte slice of any length. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | The resulting point `k·p` on BLS12-381 G1. |
+
+</FnDef>
+
+<FnDef name="msm_complete_bls12_381">
+
+Multi-scalar multiplication ∑ scalars[i]·points[i] on BLS12-381
+G1 with input validation. Returns `Err(code)` if any point is
+invalid.
+
+```rust
+pub fn msm_complete_bls12_381(
+    points: &[[u64; 12]],
+    scalars: &[[u64; 4]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 12], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `points` | `&[[u64; 12]]` | Slice of G1 points. |
+| `scalars` | `&[[u64; 4]]` | Slice of scalars. Must be the same length as `points`. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 12], u8>` | `Ok([u64; 12])` with the MSM result ∑ scalars[i]·points[i], or `Err(code)` if any point fails validation. |
+
+</FnDef>
+
+<FnDef name="sigma_endomorphism_bls12_381">
+
+Applies the σ endomorphism (x, y) → (γ·x, y) to a BLS12-381 G1
+point.
+
+```rust
+pub fn sigma_endomorphism_bls12_381(
+    p: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 point as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `σ(p)`, the image of `p` under the σ endomorphism. |
+
+</FnDef>
+
+<FnDef name="scalar_mul_by_x2div3_bls12_381">
+
+Multiplies a G1 point by (X²−1)/3, where X is the BLS12-381
+curve parameter.
+
+```rust
+pub fn scalar_mul_by_x2div3_bls12_381(
+    p: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 point as 12 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | `((X²−1)/3)·p` on BLS12-381 G1. |
+
+</FnDef>
+
+<FnDef name="g1_bytes_be_to_u64_le_bls12_381">
+
+Converts a 96-byte big-endian G1 point to `[u64; 12]`
+little-endian limbs.
+
+```rust
+pub fn g1_bytes_be_to_u64_le_bls12_381(bytes: &[u8; 96]) -> [u64; 12]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `&[u8; 96]` | Big-endian G1 point (48 bytes x ++ 48 bytes y). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 12]` | The point as 6 LE u64 limbs for x followed by 6 LE u64 limbs for y. |
+
+</FnDef>
+
+<FnDef name="g1_u64_le_to_bytes_be_bls12_381">
+
+Converts `[u64; 12]` little-endian limbs to a 96-byte
+big-endian G1 point, writing the result into `bytes`.
+
+```rust
+pub fn g1_u64_le_to_bytes_be_bls12_381(limbs: &[u64; 12], bytes: &mut [u8; 96])
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `limbs` | `&[u64; 12]` | G1 point as 12 LE u64 limbs. |
+| `bytes` | `&mut [u8; 96]` | Output buffer. Filled with the big-endian representation. |
+
+#### Returns
+
+Nothing. `bytes` is filled with the 96-byte big-endian encoding
+of the point.
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## G2 twist
+
+The BLS12-381 sextic twist over Fp2, where G2 points live. G2 is
+the second input of the pairing and the home for BLS public keys
+in min-pubkey-size deployments and for the trusted-setup elements
+`[τ]G₂` consumed by KZG. Subgroup membership is non-trivial here
+and is enforced by the `_complete_` variants.
+
+<FnPanel>
+
+<FnDef name="decompress_twist_bls12_381">
+
+Decompresses a 96-byte compressed G2 point (Fp2 x with flags in
+the MSB). Returns `Err` if the bytes do not represent a valid G2
+point.
+
+```rust
+pub fn decompress_twist_bls12_381(
+    input: &[u8; 96],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 24], &'static str>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `input` | `&[u8; 96]` | Compressed G2 point in the standard ZCash serialization (flags in MSBs). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 24], &'static str>` | `Ok([u64; 24])` with the decompressed affine G2 point, or `Err(&'static str)` if invalid. |
+
+</FnDef>
+
+<FnDef name="is_on_curve_twist_bls12_381">
+
+Returns `true` if the G2 point `p` satisfies the BLS12-381 twist
+curve equation y² = x³ + 4·(1+u).
+
+```rust
+pub fn is_on_curve_twist_bls12_381(
+    p: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | Affine G2 point as Fp2 x ++ Fp2 y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if `p` is on the BLS12-381 twist, `false` otherwise. |
+
+</FnDef>
+
+<FnDef name="is_on_subgroup_twist_bls12_381">
+
+Returns `true` if the G2 point `p` lies in the prime-order
+subgroup G2.
+
+```rust
+pub fn is_on_subgroup_twist_bls12_381(
+    p: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | Affine G2 point as 24 LE limbs. Must already satisfy the twist equation. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if `p` is in the prime-order G2 subgroup, `false` otherwise. |
+
+</FnDef>
+
+<FnDef name="clear_cofactor_twist_bls12_381">
+
+Efficient cofactor clearing for G2 using the endomorphism-based
+formula h_eff·P.
+
+```rust
+pub fn clear_cofactor_twist_bls12_381(
+    p: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | G2 point as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | The cofactor-cleared point in G2. |
+
+</FnDef>
+
+<FnDef name="add_twist_bls12_381">
+
+G2 point addition for two non-identity points on the BLS12-381
+twist.
+
+```rust
+pub fn add_twist_bls12_381(
+    p1: &[u64; 24],
+    p2: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 24]` | First G2 point as 24 LE limbs. |
+| `p2` | `&[u64; 24]` | Second G2 point as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `p1 + p2` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="add_complete_twist_bls12_381">
+
+G2 point addition with identity handling.
+
+```rust
+pub fn add_complete_twist_bls12_381(
+    p1: &[u64; 24],
+    p2: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 24]` | First G2 point as 24 LE limbs (may be identity). |
+| `p2` | `&[u64; 24]` | Second G2 point as 24 LE limbs (may be identity). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `p1 + p2` on BLS12-381 G2, with identity inputs handled. |
+
+</FnDef>
+
+<FnDef name="dbl_twist_bls12_381">
+
+G2 point doubling for a non-identity point on the BLS12-381
+twist.
+
+```rust
+pub fn dbl_twist_bls12_381(
+    p: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | G2 point to double, as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `2·p` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="sub_twist_bls12_381">
+
+G2 point subtraction for two non-identity points.
+
+```rust
+pub fn sub_twist_bls12_381(
+    p1: &[u64; 24],
+    p2: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 24]` | Minuend G2 point as 24 LE limbs. |
+| `p2` | `&[u64; 24]` | Subtrahend G2 point as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `p1 - p2` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="sub_complete_twist_bls12_381">
+
+G2 point subtraction with identity handling.
+
+```rust
+pub fn sub_complete_twist_bls12_381(
+    p1: &[u64; 24],
+    p2: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 24]` | Minuend G2 point as 24 LE limbs (may be identity). |
+| `p2` | `&[u64; 24]` | Subtrahend G2 point as 24 LE limbs (may be identity). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `p1 - p2` on BLS12-381 G2, with identity inputs handled. |
+
+</FnDef>
+
+<FnDef name="neg_twist_bls12_381">
+
+Negation of a G2 point on the BLS12-381 twist.
+
+```rust
+pub fn neg_twist_bls12_381(
+    p: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | G2 point as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `-p` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="scalar_mul_twist_bls12_381">
+
+Scalar multiplication k·p on the BLS12-381 twist using a 256-bit
+scalar.
+
+```rust
+pub fn scalar_mul_twist_bls12_381(
+    p: &[u64; 24],
+    k: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | G2 point as 24 LE limbs. |
+| `k` | `&[u64; 4]` | 256-bit scalar as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `k·p` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="scalar_mul_bin_twist_bls12_381">
+
+Scalar multiplication on BLS12-381 G2 using a binary scalar `k`
+encoded as a big-endian byte slice.
+
+```rust
+pub fn scalar_mul_bin_twist_bls12_381(
+    p: &[u64; 24],
+    k: &[u8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | G2 point as 24 LE limbs. |
+| `k` | `&[u8]` | Scalar as a big-endian byte slice. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `k·p` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="scalar_mul_by_abs_x_twist_bls12_381">
+
+Multiplies a non-identity G2 point by |X|, where X is the
+BLS12-381 curve parameter.
+
+```rust
+pub fn scalar_mul_by_abs_x_twist_bls12_381(
+    p: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | G2 point as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `|X|·p` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="msm_complete_twist_bls12_381">
+
+Multi-scalar multiplication on BLS12-381 G2 with input validation.
+
+```rust
+pub fn msm_complete_twist_bls12_381(
+    points: &[[u64; 24]],
+    scalars: &[[u64; 4]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 24], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `points` | `&[[u64; 24]]` | Slice of G2 points. |
+| `scalars` | `&[[u64; 4]]` | Slice of scalars. Must be the same length as `points`. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 24], u8>` | `Ok([u64; 24])` with ∑ scalars[i]·points[i], or `Err(code)` if any point fails validation. |
+
+</FnDef>
+
+<FnDef name="utf_endomorphism_twist_bls12_381">
+
+Applies the untwist-Frobenius-twist endomorphism ψ = φ⁻¹ ∘ πₚ ∘
+φ to a G2 point.
+
+```rust
+pub fn utf_endomorphism_twist_bls12_381(
+    p: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 24]` | G2 point as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | `ψ(p)` on BLS12-381 G2. |
+
+</FnDef>
+
+<FnDef name="g2_bytes_be_to_u64_le_bls12_381">
+
+Converts a 192-byte big-endian G2 point to `[u64; 24]`
+little-endian limbs.
+
+```rust
+pub fn g2_bytes_be_to_u64_le_bls12_381(bytes: &[u8; 192]) -> [u64; 24]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `&[u8; 192]` | Big-endian G2 point (Fp2 x ++ Fp2 y, 96 bytes each). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 24]` | The G2 point as 24 LE u64 limbs. |
+
+</FnDef>
+
+<FnDef name="g2_u64_le_to_bytes_be_bls12_381">
+
+Converts `[u64; 24]` little-endian limbs to a 192-byte
+big-endian G2 point, writing the result into `bytes`.
+
+```rust
+pub fn g2_u64_le_to_bytes_be_bls12_381(limbs: &[u64; 24], bytes: &mut [u8; 192])
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `limbs` | `&[u64; 24]` | G2 point as 24 LE u64 limbs. |
+| `bytes` | `&mut [u8; 192]` | Output buffer. Filled with the big-endian representation. |
+
+#### Returns
+
+Nothing. `bytes` is filled with the 192-byte big-endian encoding
+of the point.
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Fp6 extension field
+
+The cubic extension Fp6 = Fp2[v] / (v³ - (1 + u)). Fp6 is the
+intermediate level in the tower used to represent Fp12 efficiently;
+its operations show up inside the Miller loop and the final
+exponentiation routines in the Pairing section below.
+
+<FnPanel>
+
+<FnDef name="add_fp6_bls12_381">
+
+Addition in the BLS12-381 degree-6 extension field Fp6.
+
+```rust
+pub fn add_fp6_bls12_381(
+    a: &[u64; 36],
+    b: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="dbl_fp6_bls12_381">
+
+Doubling in BLS12-381 Fp6.
+
+```rust
+pub fn dbl_fp6_bls12_381(
+    a: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="neg_fp6_bls12_381">
+
+Negation in BLS12-381 Fp6.
+
+```rust
+pub fn neg_fp6_bls12_381(
+    a: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="sub_fp6_bls12_381">
+
+Subtraction in BLS12-381 Fp6.
+
+```rust
+pub fn sub_fp6_bls12_381(
+    a: &[u64; 36],
+    b: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="mul_fp6_bls12_381">
+
+Multiplication in BLS12-381 Fp6.
+
+```rust
+pub fn mul_fp6_bls12_381(
+    a: &[u64; 36],
+    b: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="sparse_mula_fp6_bls12_381">
+
+Sparse Fp6 multiplication variant `a` (one operand sparse).
+
+```rust
+pub fn sparse_mula_fp6_bls12_381(
+    a: &[u64; 36],
+    b: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="sparse_mulb_fp6_bls12_381">
+
+Sparse Fp6 multiplication variant `b`.
+
+```rust
+pub fn sparse_mulb_fp6_bls12_381(
+    a: &[u64; 36],
+    b: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="sparse_mulc_fp6_bls12_381">
+
+Sparse Fp6 multiplication variant `c`.
+
+```rust
+pub fn sparse_mulc_fp6_bls12_381(
+    a: &[u64; 36],
+    b: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="square_fp6_bls12_381">
+
+Squaring in BLS12-381 Fp6.
+
+```rust
+pub fn square_fp6_bls12_381(
+    a: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+<FnDef name="inv_fp6_bls12_381">
+
+Inversion in BLS12-381 Fp6.
+
+```rust
+pub fn inv_fp6_bls12_381(
+    a: &[u64; 36],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 36]
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Fp12 extension field
+
+The quadratic extension Fp12 = Fp6[w] / (w² - v). Fp12 is the
+pairing target: every pairing call returns an Fp12 element, and
+the cyclotomic subgroup section below restricts to the
+order-`r` subset of Fp12 where pairing equality lives.
+
+<FnPanel>
+
+<FnDef name="mul_fp12_bls12_381">
+
+Multiplication in the BLS12-381 degree-12 extension field Fp12.
+
+```rust
+pub fn mul_fp12_bls12_381(
+    a: &[u64; 72],
+    b: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="sparse_mul_fp12_bls12_381">
+
+Sparse Fp12 multiplication, used in the Miller loop with line
+evaluations.
+
+```rust
+pub fn sparse_mul_fp12_bls12_381(
+    a: &[u64; 72],
+    b: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="square_fp12_bls12_381">
+
+Squaring in BLS12-381 Fp12.
+
+```rust
+pub fn square_fp12_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="inv_fp12_bls12_381">
+
+Inversion in BLS12-381 Fp12.
+
+```rust
+pub fn inv_fp12_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="conjugate_fp12_bls12_381">
+
+Conjugation in BLS12-381 Fp12: maps `(c1 + c2·w)` to `(c1 −
+c2·w)`.
+
+```rust
+pub fn conjugate_fp12_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="frobenius1_fp12_bls12_381">
+
+Applies the Frobenius map πₚ once on Fp12.
+
+```rust
+pub fn frobenius1_fp12_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="frobenius2_fp12_bls12_381">
+
+Applies the Frobenius map πₚ² on Fp12.
+
+```rust
+pub fn frobenius2_fp12_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="exp_fp12_bls12_381">
+
+Exponentiation in BLS12-381 Fp12 by a 64-bit exponent.
+
+```rust
+pub fn exp_fp12_bls12_381(
+    e: u64,
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Cyclotomic subgroup GΦ₆(p²)
+
+The order-`p⁴ - p² + 1` subgroup of Fp12 reached after the easy
+part of the final exponentiation. Cyclotomic squaring and
+compression are dramatically cheaper than generic Fp12 operations,
+so the hard part of the final exponentiation in the Pairing
+section runs in this subgroup.
+
+<FnPanel>
+
+<FnDef name="compress_cyclo_bls12_381">
+
+Compresses an Fp12 cyclotomic element to the 4-coordinate
+representation used for fast squaring.
+
+```rust
+pub fn compress_cyclo_bls12_381(a: &[u64; 72]) -> [u64; 48]
+```
+
+</FnDef>
+
+<FnDef name="decompress_cyclo_bls12_381">
+
+Decompresses a cyclotomic element back to its full Fp12
+representation.
+
+```rust
+pub fn decompress_cyclo_bls12_381(
+    a: &[u64; 48],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="square_cyclo_bls12_381">
+
+Cyclotomic squaring in GΦ₆(p²) on the compressed representation.
+
+```rust
+pub fn square_cyclo_bls12_381(
+    a: &[u64; 48],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 48]
+```
+
+</FnDef>
+
+<FnDef name="exp_cyclo_bls12_381">
+
+Cyclotomic exponentiation by an exponent encoded as a
+little-endian bit slice (`x: &[u8]` of 0/1 bytes).
+
+```rust
+pub fn exp_cyclo_bls12_381(
+    a: &[u64; 72],
+    x: &[u8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="exp_by_x_cyclo_bls12_381">
+
+Cyclotomic exponentiation by `x = 15132376222941642752` (the
+absolute value of the BLS12-381 family parameter).
+
+```rust
+pub fn exp_by_x_cyclo_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="exp_by_xone_cyclo_bls12_381">
+
+Cyclotomic exponentiation by `x + 1 = 15132376222941642753`.
+
+```rust
+pub fn exp_by_xone_cyclo_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="exp_by_xdiv3_cyclo_bls12_381">
+
+Cyclotomic exponentiation by `(x + 1) / 3 =
+5044125407647214251`.
+
+```rust
+pub fn exp_by_xdiv3_cyclo_bls12_381(
+    a: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Pairing
+
+The bilinear map `e: G1 × G2 → Fp12`. The Miller loop accumulates
+line evaluations along a chain of G2 doublings and additions, and
+final exponentiation lifts the result into the cyclotomic
+subgroup `GΦ₆(p²)` so pairing equality is well-defined. KZG
+verification and BLS signature verification both reduce to a
+small fixed-size pairing check.
+
+<FnPanel>
+
+<FnDef name="miller_loop_bls12_381">
+
+Computes the Miller loop for the BLS12-381 curve on a single
+non-zero G1/G2 pair, returning an Fp12 element.
+
+```rust
+pub fn miller_loop_bls12_381(
+    p: &[u64; 12],
+    q: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 point as 12 LE limbs. |
+| `q` | `&[u64; 24]` | G2 point as 24 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 72]` | The Miller loop output as an Fp12 element. |
+
+</FnDef>
+
+<FnDef name="miller_loop_batch_bls12_381">
+
+Batch Miller loop for the BLS12-381 curve over slices of
+non-zero G1 and G2 points.
+
+```rust
+pub fn miller_loop_batch_bls12_381(
+    g1_points: &[[u64; 12]],
+    g2_points: &[[u64; 24]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="final_exp_bls12_381">
+
+Final exponentiation step of the BLS12-381 pairing: raises an
+Fp12 element to `(p¹² − 1) / r`.
+
+```rust
+pub fn final_exp_bls12_381(
+    f: &[u64; 72],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+</FnDef>
+
+<FnDef name="pairing_bls12_381">
+
+Optimal Ate pairing e(p, q) on BLS12-381. Returns the GT element
+as `[u64; 72]` (Fp12).
+
+```rust
+pub fn pairing_bls12_381(
+    p: &[u64; 12],
+    q: &[u64; 24],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | G1 point as 12 LE limbs. |
+| `q` | `&[u64; 24]` | G2 point as Fp2 x ++ Fp2 y limbs (24 limbs total). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 72]` | The pairing result e(p, q) as an Fp12 GT element. |
+
+</FnDef>
+
+<FnDef name="pairing_batch_bls12_381">
+
+Batch Ate pairing on BLS12-381: computes the product
+∏ e(g1_points[i], g2_points[i]) and returns the GT element.
+Assumes all points are non-infinity and already validated.
+
+```rust
+pub fn pairing_batch_bls12_381(
+    g1_points: &[[u64; 12]],
+    g2_points: &[[u64; 24]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 72]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `g1_points` | `&[[u64; 12]]` | Slice of G1 points. |
+| `g2_points` | `&[[u64; 24]]` | Slice of G2 points. Must be the same length as `g1_points`. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 72]` | The product ∏ e(g1_points[i], g2_points[i]) as an Fp12 GT element. |
+
+</FnDef>
+
+<FnDef name="pairing_check_bls12_381">
+
+Pairing check with full input validation: returns
+`Ok(true)` when ∏ e(g1_points[i], g2_points[i]) equals the GT
+identity, `Ok(false)` otherwise, and `Err(code)` on invalid
+input (point not in field, not on curve, or not in subgroup).
+
+```rust
+pub fn pairing_check_bls12_381(
+    g1_points: &[[u64; 12]],
+    g2_points: &[[u64; 24]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<bool, u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `g1_points` | `&[[u64; 12]]` | Slice of G1 points. |
+| `g2_points` | `&[[u64; 24]]` | Slice of G2 points. Must be the same length as `g1_points`. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<bool, u8>` | `Ok(true)` if the pairing product is `1`, `Ok(false)` if not, or `Err(code)` on invalid input. |
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## KZG
+
+The KZG polynomial commitment scheme built on the BLS12-381
+pairing. A commitment `C` to a polynomial `f` and an opening proof
+`π` at point `z` to value `y` together satisfy
+`e(C - [y]G₁, G₂) = e(π, [τ]G₂ - [z]G₂)`. This single pairing
+equation is the verifier the Ethereum blob market (EIP-4844) uses,
+so this section is the reason most guests will reach for
+BLS12-381 instead of BN254.
+
+<FnPanel>
+
+<FnDef name="verify_kzg_proof">
+
+Verifies a KZG opening proof: checks
+e(C − [y]G₁, G₂) = e(π, [τ]G₂ − [z]G₂). All inputs are
+big-endian byte arrays.
+
+```rust
+pub fn verify_kzg_proof(
+    z_bytes: &[u8; 32],
+    y_bytes: &[u8; 32],
+    commitment_bytes: &[u8; 48],
+    proof_bytes: &[u8; 48],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `z_bytes` | `&[u8; 32]` | Evaluation point as a big-endian 32-byte scalar. |
+| `y_bytes` | `&[u8; 32]` | Claimed evaluation value as a big-endian 32-byte scalar. |
+| `commitment_bytes` | `&[u8; 48]` | KZG commitment C as a compressed G1 point (big-endian). |
+| `proof_bytes` | `&[u8; 48]` | Opening proof π as a compressed G1 point (big-endian). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if the KZG proof is valid, `false` otherwise (including parsing or non-canonical scalar errors). |
+
+#### Example
+
+```rust
+let valid = zisklib::verify_kzg_proof(
+    &z_bytes,
+    &y_bytes,
+    &commitment,
+    &proof,
+    #[cfg(feature = "hints")]
+    &mut hints,
+);
+assert!(valid);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Hash-to-curve
+
+Maps an Fp or Fp2 field element to a point on G1 or G2 using the
+simplified SWU method, the appropriate isogeny, and cofactor
+clearing, matching RFC 9380. This is the on-ramp from arbitrary
+byte strings into G1 or G2, used by BLS signature schemes and any
+protocol that needs to derive group elements from messages.
+
+<FnPanel>
+
+<FnDef name="map_to_curve_g1_bls12_381">
+
+Maps an Fp element to a G1 point using the simplified SWU
+method, applies the 11-isogeny, and clears the cofactor (RFC
+9380). Returns `Err(code)` if `u` is not in the base field.
+
+```rust
+pub fn map_to_curve_g1_bls12_381(
+    u: &[u64; 6],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 12], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `u` | `&[u64; 6]` | Fp field element as 6 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 12], u8>` | `Ok([u64; 12])` with a G1 point on BLS12-381 in the prime-order subgroup, or `Err(code)` if `u` is not in the base field. |
+
+</FnDef>
+
+<FnDef name="map_to_curve_g2_bls12_381">
+
+Maps an Fp2 element to a G2 point using the simplified SWU
+method, applies the 3-isogeny, and clears the cofactor (RFC
+9380). Returns `Err(code)` if `u` is not in Fp2.
+
+```rust
+pub fn map_to_curve_g2_bls12_381(
+    u: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 24], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `u` | `&[u64; 12]` | Fp2 field element as 12 LE limbs (real ++ imaginary). |
+| `hints` | `&mut Vec<u64>` | Hint collector (only present under the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 24], u8>` | `Ok([u64; 24])` with a G2 point on BLS12-381 in the prime-order subgroup, or `Err(code)` if `u` is not in Fp2. |
+
+</FnDef>
+
+</FnPanel>
+
+## See also
+
+- [BN254](/references/zisk-os/zisklib/bn254): the smaller pairing
+  curve, targeted by Ethereum's Groth16 / PLONK precompiles.
+- [BLS12-381 precompile](/references/zisk-os/precompiles/bls12-381):
+  the underlying syscall the routines on this page dispatch into.
+- [zisklib](/references/zisk-os/zisklib): index of all `zisklib`
+  modules.

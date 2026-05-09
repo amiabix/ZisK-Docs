@@ -1,0 +1,43 @@
+---
+id: writing-programs
+sidebar_position: 0
+title: Writing Programs
+description: Everything you need to write efficient ZisK guest programs.
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="A guest program is the piece of code ZisK proves. Write it in Rust,
+  run it inside the zkVM, and get back a proof that the computation happened correctly.
+  This section walks the path from a blank program to an optimized, provable guest.">
+  <PageCard
+    href="/developer/writing-programs/first-guest"
+    tag="Start here" tagColor="green"
+    title="Your first guest program"
+    description="Write, build, and prove your first ZisK guest program end to end using a SHA-256 hash as the example."
+  />
+  <PageCard
+    href="/developer/writing-programs/inputs"
+    tag="I/O" tagColor="blue"
+    title="Working with inputs"
+    description="Learn how the input buffer works and how to read typed values or raw bytes into your guest program."
+  />
+  <PageCard
+    href="/developer/writing-programs/outputs"
+    tag="I/O" tagColor="blue"
+    title="Committing outputs"
+    description="Expose computation results as public outputs in the proof using typed commits, raw slices, or compressed hashes."
+  />
+  <PageCard
+    href="/developer/writing-programs/profiling"
+    tag="Profiling" tagColor="blue"
+    title="Profiling your program"
+    description="Measure cycle counts per operation to identify bottlenecks in your guest program before running the full prover."
+  />
+  <PageCard
+    href="/developer/writing-programs/libraries"
+    tag="Performance" tagColor="yellow"
+    title="Optimizing your program"
+    description="Accelerate guest programs by swapping crate dependencies with ZisK-patched forks or replacing call sites with zisklib wrappers."
+  />
+</IndexPage>

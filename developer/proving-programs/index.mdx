@@ -1,0 +1,50 @@
+---
+id: proving-programs
+sidebar_position: 0
+title: Proving Programs
+description: Generate, verify, and deploy zero-knowledge proofs with ZisK.
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="A proof is what makes a ZisK computation trustworthy. Run
+  the prover over your guest program and get back a proof anyone can verify
+  without re-executing the code or seeing the inputs. This section covers
+  the full proving pipeline, from your first proof to on-chain verification.">
+  <PageCard
+    href="/developer/proving-programs/first-proof"
+    tag="Start here" tagColor="green"
+    title="Your first proof"
+    description="Prove and verify your first ZisK guest program end to end using a SHA-256 hash as the example."
+  />
+  <PageCard
+    href="/developer/proving-programs/prover-client"
+    tag="Configuration" tagColor="blue"
+    title="Choosing a prover client"
+    description="Configure the prover backend (local CPU, GPU, mock, or remote network) and tune its options."
+  />
+  <PageCard
+    href="/developer/proving-programs/proof-format"
+    tag="Configuration" tagColor="blue"
+    title="Choosing a proof output"
+    description="Understand the three proof types (STARK, Compressed, and PLONK) and when to use each."
+  />
+  <PageCard
+    href="/developer/proving-programs/io"
+    tag="I/O" tagColor="blue"
+    title="Managing basic I/O"
+    description="Write inputs into the guest with Stdin and read public values back out of a verified proof."
+  />
+  <PageCard
+    href="/developer/proving-programs/io-advanced"
+    tag="I/O" tagColor="blue"
+    title="Managing advanced I/O"
+    description="Stream inputs into the guest at runtime and pass hints alongside the proof for non-deterministic data."
+  />
+  <PageCard
+    href="/developer/proving-programs/verify-proof"
+    tag="I/O" tagColor="blue"
+    title="Verifying a proof"
+    description="Load an existing proof from disk, verify it, and read the committed public values."
+  />
+</IndexPage>

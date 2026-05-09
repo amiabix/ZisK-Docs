@@ -1,0 +1,240 @@
+---
+id: on-chain-verification
+sidebar_position: 7
+title: On-Chain Verification
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+ZisK produces constant-size PLONK proofs that any EVM-compatible smart contract can verify instantly. This page covers the verifier contract, extracting proof data from Rust, deployment, and calling the verifier from your own Solidity code.
+
+</Summary>
+
+## Prerequisites
+
+Before starting, have these in place:
+
+- A PLONK proof. See [Choosing a proof output](./proof-format) to generate one.
+- [Foundry](https://book.getfoundry.sh) for contract deployment.
+- An RPC endpoint and a funded account on your target chain.
+
+---
+
+## The verifier contract
+
+The verifier lives in [`zisk-contracts/`](https://github.com/0xPolygonHermez/zisk/tree/main/zisk-contracts) and consists of three files:
+
+- **`IZiskVerifier.sol`**: the interface your contracts call.
+- **`ZiskVerifier.sol`**: the implementation; inherits `PlonkVerifier`.
+- **`PlonkVerifier.sol`**: the auto-generated snarkJS PLONK verifier.
+
+The entry point is `verifySnarkProof`. It takes four parameters and either succeeds silently or reverts with `InvalidProof()`:
+
+```solidity title="IZiskVerifier.sol"
+interface IZiskVerifier {
+    function verifySnarkProof(
+        bytes32 calldata programVK,
+        bytes32 calldata rootCVadcopFinal,
+        bytes calldata publicValues,
+        bytes calldata proofBytes
+    ) external view;
+}
+```
+
+`ZiskVerifier.sol` also exposes helper functions that are useful to callers:
+
+```solidity title="ZiskVerifier.sol"
+interface IZiskVerifierHelpers {
+    function getRootCVadcopFinal() external pure returns (bytes32);
+    function hashPublicValues(
+        bytes32 programVK,
+        bytes32 rootCVadcopFinal,
+        bytes calldata publicValues
+    ) external pure returns (uint256);
+}
+```
+
+**Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `programVK` | Program verification key, packed as the verifier expects. |
+| `rootCVadcopFinal` | Commitment to the VADCOP circuit; fixed per ZisK version. |
+| `publicValues` | The outputs the guest committed, encoded as bytes. |
+| `proofBytes` | The raw PLONK proof, decoded internally as `uint256[24]`. |
+
+---
+
+## How verification works
+
+Before checking the proof, the contract hashes the public values and associated parameters:
+
+```solidity title="Verifier.sol"
+uint256 publicValuesDigest = hashPublicValues(programVK, rootCVadcopFinal, publicValues);
+```
+
+The `hashPublicValues` function packs the components into a preimage in this exact order:
+
+```
+programVK (32 bytes) | publicValues (variable) | rootCVadcopFinal (32 bytes)
+```
+
+`programVK` and `rootCVadcopFinal` are both `bytes32`. SHA-256 hashes the preimage, then the digest is reduced modulo the BN254 scalar field.
+
+:::warning
+The preimage order is `programVK | publicValues | rootCVadcopFinal`. Reversing or rearranging this order is the most common source of verification failure.
+:::
+
+---
+
+## Byte order
+
+ZisK stores the program verification key as little-endian `u64` chunks internally. The Solidity verifier receives the same 32 bytes after each chunk is converted to the byte order used by the verifier contract. Public values are passed as the committed 256-byte public-output slot buffer.
+
+The SDK exposes helpers for the proof-side encoding:
+
+| Method | Description |
+|---|---|
+| `publics.bytes_solidity(&program_vk, vadcop_verkey)` | Builds the full hash preimage with all byte swaps applied. |
+| `publics.hash_solidity(&program_vk, vadcop_verkey)` | Returns the SHA-256 digest directly. |
+| `result.get_public_values_slice(&mut buf)` | Copies the 256-byte public-output slot buffer used as `publicValues` calldata. |
+
+:::warning
+Endianness mismatch is the single most common cause of on-chain verification failure. Keep one encoding path in the host code and test it against `ZiskVerifier.hashPublicValues` before accepting proofs in production.
+:::
+
+---
+
+## Getting the values from Rust
+
+All data needed to call the verifier comes from the proving pipeline and the deployed verifier contract. Build a PLONK proof, then extract the program verification key, public values, and proof bytes:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProofKind, ProverClient, ZiskStdin};
+
+fn solidity_bytes32_from_le_u64s(bytes: &[u8]) -> anyhow::Result<[u8; 32]> {
+    anyhow::ensure!(bytes.len() == 32, "expected a 32-byte ProgramVK");
+
+    let mut out = [0u8; 32];
+    for (i, chunk) in bytes.chunks_exact(8).enumerate() {
+        let word = u64::from_le_bytes(chunk.try_into()?);
+        out[i * 8..(i + 1) * 8].copy_from_slice(&word.to_be_bytes());
+    }
+    Ok(out)
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let client = ProverClient::embedded().plonk().build()?;
+
+    let program = GuestProgram::from_uri(
+        "target/elf/riscv64ima-zisk-zkvm-elf/release/my-guest",
+    )?;
+
+    client.setup(&program).run()?.await?;
+
+    let stdin = ZiskStdin::new();
+    stdin.write(&10u32);
+
+    let result = client
+        .prove(&program, stdin)
+        .wrap(ProofKind::Plonk)
+        .run()?
+        .await?;
+    result.verify()?;
+
+    anyhow::ensure!(
+        result.get_proof().proof_kind == ProofKind::Plonk,
+        "expected a PLONK proof"
+    );
+
+    let program_vk = solidity_bytes32_from_le_u64s(&result.get_program_vk().vk)?;
+
+    let mut public_values = [0u8; 64 * 4];
+    result.get_public_values_slice(&mut public_values);
+
+    let proof_bytes = result.get_proof().proof_bytes.clone();
+
+    println!("Program VK:    0x{}", hex::encode(program_vk));
+    println!("Proof size:    {} bytes", proof_bytes.len());
+    println!("Public values: {} bytes", public_values.len());
+
+    Ok(())
+}
+```
+
+Fetch `rootCVadcopFinal` from the deployed verifier with `getRootCVadcopFinal()` and pass it with these three values to `verifySnarkProof`.
+
+---
+
+## Deploying the verifier
+
+The verifier is stateless and immutable. Deploy it once and reuse it across all guest programs. Deploy with Foundry:
+
+```bash title="bash"
+forge create --rpc-url $RPC_URL \
+    --private-key $PRIVATE_KEY \
+    ZiskVerifier.sol:ZiskVerifier
+```
+
+Save the deployed address. You will pass it to your application contract next.
+
+---
+
+## Calling the verifier from your contract
+
+With the verifier deployed, your contract calls `verifySnarkProof` to check any proof before acting on its result. Query `getRootCVadcopFinal()` from the verifier directly rather than hardcoding the circuit commitment:
+
+```solidity title="MyVerifiedApp.sol"
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+interface IZiskVerifier {
+    function verifySnarkProof(
+        bytes32 calldata programVK,
+        bytes32 calldata rootCVadcopFinal,
+        bytes calldata publicValues,
+        bytes calldata proofBytes
+    ) external view;
+
+    function getRootCVadcopFinal() external pure returns (bytes32);
+}
+
+contract MyVerifiedApp {
+    IZiskVerifier public immutable verifier;
+
+    event ComputationVerified(uint256 result);
+
+    constructor(address _verifier) {
+        verifier = IZiskVerifier(_verifier);
+    }
+
+    function submitProof(
+        bytes32 programVK,
+        bytes calldata publicValues,
+        bytes calldata proofBytes,
+        uint256 claimedResult
+    ) external {
+        bytes32 rootC = verifier.getRootCVadcopFinal();
+        verifier.verifySnarkProof(programVK, rootC, publicValues, proofBytes);
+        emit ComputationVerified(claimedResult);
+    }
+}
+```
+
+`verifySnarkProof` reverts with `InvalidProof()` if the proof fails verification, so the rest of the function runs only when the proof is accepted.
+
+---
+
+## Gas costs
+
+Gas cost is dominated by elliptic curve pairing operations in the PLONK verifier. The cost is constant regardless of guest program complexity or input size. Verifying a simple hash costs the same as verifying a complex state transition.
+
+---
+
+## Where this picks up
+
+- [Choosing a proof output](./proof-format): when to use PLONK versus STARK or Minimal STARK.
+- [Reading public values](./io): read the outputs the guest committed before passing them to the contract.

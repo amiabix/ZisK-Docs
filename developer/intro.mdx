@@ -1,0 +1,31 @@
+---
+id: intro
+sidebar_position: 1
+title: Developer Docs
+displayed_sidebar: developerSidebar
+hide_title: true
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="Everything you need to build, prove, and verify programs
+  with ZisK, from first install to on-chain verification.">
+  <PageCard
+    href="/developer/getting-started/install-linux"
+    tag="Start here" tagColor="green"
+    title="Getting Started"
+    description="Install ZisK on Linux or macOS, configure system dependencies, and verify your environment is ready to prove."
+  />
+  <PageCard
+    href="/developer/writing-programs"
+    tag="Guide" tagColor="blue"
+    title="Writing Programs"
+    description="Write ZisK guest programs in standard Rust. Covers I/O, profiling, precompiles, and patches using a Hash Accumulator as the example."
+  />
+  <PageCard
+    href="/developer/proving-programs"
+    tag="Guide" tagColor="blue"
+    title="Proving Programs"
+    description="Generate STARK and PLONK proofs, verify them on the host or on-chain, and read committed public values using SHA-256 and a Merkle Tree as examples."
+  />
+</IndexPage>

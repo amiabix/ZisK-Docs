@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1280 800" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+<style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.mono { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; }
+
+.n-chip rect, .n-chip polygon { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+.n-dec polygon { fill: #FFFFFF; stroke: #007755; stroke-width: 1.5; }
+.n-dec rect { fill: #F3F3F2; stroke: #007755; stroke-width: 1.5; }
+.n-dec text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.edge-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #4A4C59; }
+.edge-label-bg { fill: #FFFFFF; stroke: none; }
+
+.subgraph rect { fill: rgba(110,91,224,0.04); stroke: #6E5BE0; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph.vm rect { fill: rgba(0,179,89,0.04); stroke: #007755; }
+.subgraph text.label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; fill: #6E5BE0; font-weight: 600; }
+.subgraph.vm text.label { fill: #007755; }
+
+.seq-life { stroke: #B9B9C5; stroke-width: 1; stroke-dasharray: 3 4; }
+.seq-msg { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-dashed { fill: none; stroke: #15161D; stroke-width: 1.4; stroke-dasharray: 5 4; }
+.seq-self { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-note rect { fill: rgba(0,179,89,0.07); stroke: #007755; stroke-width: 1; rx: 4; }
+.seq-note text { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-step-num { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9.5px; fill: #7E7F8C; letter-spacing: 0.1em; }
+]]></style>
+            <marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+            <marker id="arr4-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+          </defs>
+
+          <!-- Host subgraph -->
+          <g class="subgraph">
+            <rect x="40" y="20" width="1020" height="320" rx="12"/>
+            <text class="label" x="60" y="46">Host (your machine, not in the proof)</text>
+          </g>
+          <!-- HC top center -->
+          <g class="n-chip" transform="translate(430,70)"><rect width="240" height="100" rx="8"/><text class="kind" x="120" y="24" text-anchor="middle">process</text><text class="name" x="120" y="50" text-anchor="middle">Host code</text><text class="sub" x="120" y="72" text-anchor="middle">prepare inputs,</text><text class="sub" x="120" y="88" text-anchor="middle">drive prover</text></g>
+          <!-- IN bottom-left of Host -->
+          <g class="n-art" transform="translate(150,230)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">artifact</text><text class="name" x="110" y="50" text-anchor="middle">Input stream</text></g>
+          <!-- HINT bottom-right of Host -->
+          <g class="n-art" transform="translate(730,230)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">artifact</text><text class="name" x="110" y="50" text-anchor="middle">Hint stream</text></g>
+
+          <!-- VM subgraph -->
+          <g class="subgraph vm">
+            <rect x="40" y="400" width="1020" height="380" rx="12"/>
+            <text class="label" x="60" y="426">ZisK VM (everything here is proven)</text>
+          </g>
+          <!-- GC top center of VM -->
+          <g class="n-chip" transform="translate(430,450)"><rect width="240" height="100" rx="8"/><text class="kind" x="120" y="24" text-anchor="middle">process</text><text class="name" x="120" y="50" text-anchor="middle">Guest code</text><text class="sub" x="120" y="74" text-anchor="middle">your program</text></g>
+          <!-- PC bottom-left of VM -->
+          <g class="n-art" transform="translate(150,610)"><rect width="220" height="130" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">artifact</text><text class="name" x="110" y="50" text-anchor="middle">Guest state</text><text class="sub" x="110" y="74" text-anchor="middle">pc, memory,</text><text class="sub" x="110" y="90" text-anchor="middle">public outputs</text></g>
+          <!-- OUT bottom-right of VM -->
+          <g class="n-out" transform="translate(730,630)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">output</text><text class="name" x="110" y="50" text-anchor="middle">Public outputs</text></g>
+
+          <!-- Edges within Host: HC -> IN (down-left) -->
+          <path class="edge" d="M 490 170 C 490 200, 260 200, 260 230" marker-end="url(#arr4)"/>
+          <!-- HC -> HINT (down-right) -->
+          <path class="edge" d="M 610 170 C 610 200, 840 200, 840 230" marker-end="url(#arr4)"/>
+
+          <!-- Cross-subgraph: IN -> GC (down-right) -->
+          <path class="edge" d="M 260 310 C 260 380, 490 400, 490 450" marker-end="url(#arr4)"/>
+          <!-- HINT -.-> GC (down-left, dashed) -->
+          <path class="edge-dim" d="M 840 310 C 840 380, 610 400, 610 450" marker-end="url(#arr4-dim)"/>
+
+          <!-- Within VM: GC -> PC (down-left) -->
+          <path class="edge" d="M 490 550 C 490 580, 260 580, 260 610" marker-end="url(#arr4)"/>
+          <!-- GC -> OUT (down-right) -->
+          <path class="edge" d="M 610 550 C 610 580, 840 600, 840 630" marker-end="url(#arr4)"/>
+
+          <!-- OUT -> HC: outer right rail going up -->
+          <path class="edge" d="M 950 670 L 1110 670 L 1110 120 L 670 120" marker-end="url(#arr4)"/>
+          <rect class="edge-label-bg" x="1130" y="382" width="140" height="36" rx="2"/>
+          <text class="edge-label" x="1200" y="397" text-anchor="middle">read after</text>
+          <text class="edge-label" x="1200" y="411" text-anchor="middle">proving</text>
+        </svg>

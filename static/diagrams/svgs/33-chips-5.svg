@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1300 280" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 13px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 13px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-dec polygon { fill: #F3F3F2; stroke: #007755; stroke-width: 1.5; }
+.n-dec text.name { fill: #15161D; font-weight: 600; font-size: 13px; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr33" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-art" transform="translate(20,100)">
+    <rect width="280" height="80" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">query</text>
+    <text class="name" x="140" y="52" text-anchor="middle">AND(0x42, 0x7f)</text>
+  </g>
+
+  <g class="n-dec" transform="translate(420,100)">
+    <polygon points="120,0 240,40 120,80 0,40"/>
+    <text class="name" x="120" y="46" text-anchor="middle">cache hit?</text>
+  </g>
+
+  <g class="n-chip" transform="translate(780,20)">
+    <rect width="320" height="80" rx="8"/>
+    <text class="kind" x="160" y="22" text-anchor="middle">fast path</text>
+    <text class="name" x="160" y="52" text-anchor="middle">Resolve from cache row</text>
+  </g>
+  <g class="n-chip" transform="translate(780,180)">
+    <rect width="320" height="80" rx="8"/>
+    <text class="kind" x="160" y="22" text-anchor="middle">fallback</text>
+    <text class="name" x="160" y="52" text-anchor="middle">Constraint check via lookup table</text>
+  </g>
+
+  <path class="edge" d="M 300 140 L 420 140" marker-end="url(#arr33)"/>
+  <path class="edge" d="M 660 130 C 720 130, 740 60, 780 60" marker-end="url(#arr33)"/>
+  <text class="edge-label" x="720" y="105" text-anchor="middle">yes</text>
+  <path class="edge" d="M 660 150 C 720 150, 740 220, 780 220" marker-end="url(#arr33)"/>
+  <text class="edge-label" x="720" y="195" text-anchor="middle">no</text>
+</svg>

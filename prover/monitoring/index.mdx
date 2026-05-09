@@ -1,0 +1,38 @@
+---
+id: monitoring
+sidebar_position: 0
+title: Monitoring
+description: Metrics, alerts, log filters, and the operational runbook for keeping a ZisK cluster healthy in production.
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="A deployed cluster needs monitoring you can act on.
+  This section walks through what to watch (metrics, alerts, logs) and
+  the operational responses each signal asks for. Treat the sub-pages
+  as the things you will grep for at three in the morning.">
+  <PageCard
+    href="/prover/monitoring/metrics-and-alerts"
+    tag="Observability" tagColor="blue"
+    title="Metrics and alerts"
+    description="The Prometheus metrics that matter, the starter alerting set, and what each alert is actually trying to catch."
+  />
+  <PageCard
+    href="/prover/monitoring/logs"
+    tag="Observability" tagColor="blue"
+    title="Logs"
+    description="Where coordinator and worker logs go on each deployment path, useful filters, and how to trace a single job through the system end to end."
+  />
+  <PageCard
+    href="/prover/monitoring/scaling-and-restarts"
+    tag="Operations" tagColor="green"
+    title="Scaling and restarts"
+    description="Add or remove worker capacity without restarting the coordinator, and run rolling restarts that don't drop in-flight jobs."
+  />
+  <PageCard
+    href="/prover/monitoring/troubleshooting"
+    tag="Runbook" tagColor="yellow"
+    title="Troubleshooting"
+    description="The handful of failure patterns that cover most production incidents, with symptoms, likely causes, and the concrete check for each."
+  />
+</IndexPage>

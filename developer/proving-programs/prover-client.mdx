@@ -1,0 +1,241 @@
+---
+id: prover-client
+sidebar_position: 2
+title: Choosing a prover client
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+ZisK ships two prover backends: an **embedded** prover that runs in your process and a **remote** prover that delegates proof generation to an external endpoint. This page covers how to choose between them and how to configure each.
+
+</Summary>
+
+## Two backends
+
+A prover client encapsulates the proving backend. ZisK exposes two of them, and the choice mostly depends on where you want the heavy lifting to happen.
+
+The **embedded** prover runs proof generation in the same process as your host program or CLI command. It is the default everywhere proving is local: CI, single-host development, evaluation.
+
+Configuration is driven by two independent choices: the executor and the device.
+
+The **remote** prover delegates proof generation to a coordinator over gRPC. It is the right answer when local hardware is not enough, or when proving is operated as a service.
+
+The next two sections cover each backend in turn. Configuration tables follow at the end.
+
+### Embedded prover
+
+The embedded backend runs in-process. Two independent choices configure it.
+
+**Executor** controls how the guest program runs:
+
+| Option   | Platform       | Description                                                        |
+|----------|----------------|--------------------------------------------------------------------|
+| Emulator | All            | Software emulator. The right default while developing.             |
+| Assembly | Linux x86_64   | Native execution engine. Significantly faster for large programs.  |
+
+**Compute device** controls where proving runs:
+
+| Option | Device                 | Description                                                       |
+|--------|------------------------|-------------------------------------------------------------------|
+| CPU    | Any                    | Default. Works everywhere.                                        |
+| GPU    | CUDA-compatible device | Offloads witness generation for faster proving on large programs. |
+
+The two choices combine freely. Emulator + CPU is the right default while writing and debugging guests; Assembly + GPU gives maximum throughput on supported hardware.
+
+### Remote prover
+
+The remote backend dispatches every proving call to a coordinator over gRPC.
+
+Use it when local proving is not viable: programs too large for available RAM, throughput needs that exceed a single host, or operational reasons that keep proving off the developer's machine.
+
+Endpoints and authentication come from your operator setup; see the [Prover documentation](/prover/intro) for available networks and connection options.
+
+---
+
+## Selecting a prover
+
+How you select a backend depends on whether you are driving from the terminal or from Rust.
+
+### Using cargo-zisk
+
+Pass `--emulator` and `--gpu` to the prove command to override the executor and device:
+
+| Backend        | Flag                          |
+|----------------|-------------------------------|
+| CPU + Assembly | _(default, no flags needed)_  |
+| GPU + Assembly | `--gpu`                       |
+| CPU + Emulator | `--emulator`                  |
+| GPU + Emulator | `--emulator --gpu`            |
+
+If neither flag is passed, `cargo-zisk prove` uses Assembly + CPU on Linux. macOS forces the Emulator regardless because Assembly is Linux-only. `-i` takes a path to a `ZiskStdin`-formatted file. The CLI accepts a plain path or a `file://` URI; HTTP(S) and other URI schemes are not supported.
+
+```zisk-bash title="bash"
+# Local CPU with assembly (default)
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> -o ./proofs/proof.bin --verify-proofs
+
+# Local GPU with assembly
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> --gpu -o ./proofs/proof.bin --verify-proofs
+
+# Local CPU with emulator
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> --emulator -o ./proofs/proof.bin --verify-proofs
+```
+
+#### GPU proving flow
+
+The full GPU flow follows the same shape as the local CPU flow, with `--gpu` on `program-setup` and `prove`:
+
+```zisk-bash title="bash"
+cargo-zisk program-setup -e <path/to/guest-elf> --gpu
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> --gpu -o ./proofs/proof.bin --verify-proofs
+cargo-zisk verify -p ./proofs/proof.bin
+```
+
+Expected log lines confirming the GPU is in use:
+
+```
+GPU assignment: ... GPUs=[0...]
+Allocated ... GB
+✓ STARK proof was verified
+```
+
+GPU use should also be visible in `nvidia-smi` while the prover runs. The `--gpu` flags only matter when the installed binary includes GPU support; on a CPU-only build they are ignored. See [Install on Linux: Verify GPU support](/developer/getting-started/install-linux#verify-gpu-support) for the environment checks that confirm the binary loads.
+
+### Using zisk-sdk
+
+Call `ProverClient::embedded()` or `ProverClient::remote(url)`, then chain executor and device methods before `.build()`:
+
+| Executor | Device | Example                                               |
+|----------|--------|-------------------------------------------------------|
+| Emulator | CPU    | `ProverClient::embedded().build()?`                   |
+| Emulator | GPU    | `ProverClient::embedded().gpu().build()?`             |
+| Assembly | CPU    | `ProverClient::embedded().assembly().build()?`        |
+| Assembly | GPU    | `ProverClient::embedded().assembly().gpu().build()?`  |
+| Network  | -      | `ProverClient::remote("https://...").build()?`        |
+
+If no methods are chained, the SDK uses the **Emulator on CPU**. This differs from the CLI default; the SDK favors portability, the CLI favors throughput.
+
+A reminder from the SDK's contract: only one client per process. The second `.build()` panics. Wrap the client in an `Arc` if multiple tasks need it.
+
+---
+
+## Configuring the prover
+
+The defaults work for most cases. The sections below cover each backend's available options for when you need to go further.
+
+### Embedded configuration
+
+`EmbeddedClientBuilder` exposes several chainable methods directly, plus a `.with_embedded_opts(EmbeddedOpts)` escape hatch for finer-grained tuning.
+
+**Builder methods** (`ProverClient::embedded().<method>().build()?`):
+
+| Method                            | Description                                                       |
+|-----------------------------------|-------------------------------------------------------------------|
+| `proving_key(PathBuf)`            | Path to the STARK proving key directory.                          |
+| `proving_key_plonk(PathBuf)`      | Path to the PLONK/SNARK proving key directory.                    |
+| `preload_plonk()`                 | Eagerly load the PLONK key at build time instead of on first use. |
+| `asm_options(AsmOptions)`         | Pass extra options to the Assembly executor.                      |
+| `with_embedded_opts(EmbeddedOpts)`| Apply the runtime tuning options listed below.                    |
+
+**Runtime tuning** (set on `EmbeddedOpts`, applied via `.with_embedded_opts(opts)`):
+
+| Option                            | Description                                                       |
+|-----------------------------------|-------------------------------------------------------------------|
+| `minimal_memory`                  | Reduce memory footprint during proving.                           |
+| `max_witness_stored`              | Maximum memory (bytes) for witness storage during proving.        |
+| `number_threads_witness`          | Number of threads for witness generation.                         |
+| `max_streams`                     | Maximum number of parallel streams during proving.                |
+
+```rust title="host/src/main.rs"
+use std::path::PathBuf;
+use zisk_sdk::{EmbeddedOpts, ProverClient};
+
+let opts = EmbeddedOpts::default()
+    .minimal_memory()
+    .number_threads_witness(8);
+
+let client = ProverClient::embedded()
+    .proving_key(PathBuf::from("~/my-path/my-proving-key"))
+    .plonk()
+    .with_embedded_opts(opts)
+    .build()?;
+```
+
+`.plonk()` on the builder is a format selector; it tells the prover to emit PLONK proofs.
+
+To eagerly load the PLONK key at startup so the first prove call does not pay the load cost, combine it with `EmbeddedOpts::preload_plonk()`. The two flags are independent and can be set together.
+
+### Remote configuration
+
+The remote prover delegates proof generation to an external endpoint. Pass the endpoint URL directly to `ProverClient::remote()`:
+
+| Builder method             | Description                                                |
+|----------------------------|------------------------------------------------------------|
+| `connect_timeout(Duration)`| Timeout for establishing the connection (default: 10 s).   |
+| `request_timeout(Duration)`| Timeout for the full proving request (default: 300 s).     |
+
+```rust title="host/src/main.rs"
+use std::time::Duration;
+use zisk_sdk::ProverClient;
+
+let client = ProverClient::remote("https://prover.example.com")
+    .connect_timeout(Duration::from_secs(10))
+    .request_timeout(Duration::from_secs(600))
+    .build()?;
+```
+
+The remote builder establishes the gRPC channel eagerly at `.build()` time. If the coordinator is unreachable inside the connect timeout, the build returns an error rather than a usable client.
+
+For long-running proving jobs, set `request_timeout` generously. The default (300 s) suits most proofs, but complex programs can take longer.
+
+### Running a local remote setup
+
+The remote backend talks to a coordinator over gRPC, and the coordinator dispatches work to one or more workers. To exercise the remote path locally, run a coordinator and a worker on the same machine, then point the SDK client at `127.0.0.1:7000`.
+
+Start the coordinator (client-facing on `7000`, worker-facing on `50051`, metrics on `9090`):
+
+```bash
+zisk-coordinator --config <coordinator-config> --api-port 7000 --cluster-port 50051 --metrics-port 9090
+```
+
+In a second terminal, start a worker connected to the same coordinator. Add `--gpu` if the build includes GPU support and you want the worker to use it:
+
+```bash
+zisk-worker --coordinator-url http://127.0.0.1:50051 --gpu
+```
+
+The coordinator log shows the worker connecting before any job can make progress. Without a registered worker, jobs sit in the queue.
+
+The `examples/sha-hasher/host` crate ships ready-made remote binaries against this same URL. Run `execute-remote` first as a smoke test, then `prove-remote`:
+
+```bash
+mkdir -p tmp
+cargo run --release -p sha-hasher-host --bin execute-remote
+cargo run --release -p sha-hasher-host --bin prove-remote
+cargo-zisk verify -p tmp/sha_hasher_proof.bin
+```
+
+Expected output snippets:
+
+```
+✓ Execution completed successfully!
+Proof verification successful!
+✓ Successfully generated and verified all proofs!
+✓ STARK proof was verified
+```
+
+A few things to keep in mind:
+
+- The host examples are declared as named `[[bin]]` entries in `examples/sha-hasher/host/Cargo.toml`. Pass `--bin <name>` to select one.
+- For the bundled `sha-hasher` examples, pass `--features gpu` to enable GPU proving. Those examples gate the `.gpu()` builder call behind a local Cargo feature (`#[cfg(feature = "gpu")]`); without the feature flag the code path falls back to CPU. This is example-specific, not a general SDK rule. In your own host code, GPU is selected by calling `.gpu()` against a GPU-capable ZisK build, and on the CLI it is selected with `--gpu` against a GPU-capable `cargo-zisk` install.
+- The remote binaries save their proofs under `tmp/`. Create the directory before the first run with `mkdir -p tmp`.
+- `ProverClient::remote("http://127.0.0.1:7000").build()?` connects eagerly. If the coordinator is not running, `.build()` fails before any job is submitted.
+- Align the SDK URL with the coordinator's `--api-port`. The default is `7000`.
+
+## Where this picks up
+
+The client is now configured. The next pages cover what to do with it:
+
+- [Choosing a proof output](./proof-format): pick between STARK and PLONK based on where the proof will be verified.
+- [Verifying a proof](./verify-proof): load an existing proof from disk and verify it programmatically.

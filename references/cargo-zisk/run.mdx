@@ -1,0 +1,115 @@
+---
+id: run
+title: Run
+sidebar_position: 3
+displayed_sidebar: referencesSidebar
+description: Run the guest in the emulator for fast logic and input
+  checks. No proof generated.
+---
+
+Run the guest program inside the ZisK emulator. No proof is generated
+and no execution trace is produced. Use `run` for fast iteration:
+verify that your logic is correct and profile execution cost before
+committing to the full proving pipeline.
+
+:::tip run vs execute
+`run` uses a lightweight emulator. It is the fastest way to check
+guest logic and profile cycle cost. It does not replicate the full
+proving pipeline. Use [`execute`](/references/cargo-zisk/execute)
+when you need to validate that your inputs and hint streams are
+correct against the same execution path that `prove` uses.
+:::
+
+```bash
+cargo-zisk run [-i <input-file>] [-e <elf>] [-p <mode>]
+```
+
+## Flags
+
+| Flag                    | Short | Default               | Description                                                                                    |
+|-------------------------|-------|-----------------------|------------------------------------------------------------------------------------------------|
+| `--features`            | `-F`  | None                  | Space or comma separated list of features to activate.                                         |
+| `--all-features`        |       | `false`               | Activate all available features.                                                               |
+| `--no-default-features` |       | `false`               | Do not activate the `default` feature.                                                         |
+| `--release`             |       | `false`               | Build artifacts in release mode, with optimizations.                                           |
+| `--elf <elf>`           | `-e`  | standard release path | Path to the guest ELF generated during build.                                                  |
+| `--inputs <input-file>` | `-i`  | none                  | Path to a `ZiskStdin`-formatted input file.                                                    |
+| `--profiling <mode>`    | `-p`  | none (no profiling)   | Profiling report to emit. Options: `inline`, `summary`, `complete`. Omitted means no profiling. |
+
+## Examples
+
+Run the guest with no input:
+
+```bash
+cargo-zisk run
+```
+
+Run with a binary input file:
+
+```bash
+cargo-zisk run --inputs ./inputs/data.bin
+```
+
+Print the full profiling report to stdout:
+
+```bash
+cargo-zisk run --inputs ./inputs/data.bin --profiling summary
+```
+
+Save the full profiling report to disk for interactive exploration:
+
+```bash
+cargo-zisk run --inputs ./inputs/data.bin --profiling complete
+```
+
+## Outputs
+
+When `--profiling` is omitted, no profiling output is produced. Pass one of the three modes below to enable a report.
+
+**`inline`**: Prints the accumulated cost of each named region defined with `profile_start!` / `profile_end!` markers in the guest code:
+
+```
+[`inline tag1`]    320,750
+[`inline tag2`]    823,540
+```
+
+**`summary`**: prints a structured profiling report to stdout:
+
+```bash-profiling
+╔══════════════════════════════════════════════════════════════════════╗
+║  ◆ Profiling Report                       merkle-tree(0xA1c...43F)   ║
+╠══════════════════════════════════════════════════════════════════════╣
+║                                                                      ║
+║  SUMMARY                                         2,145,312   total   ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  Opcodes      ████████████████████████░░░░░░░░   2,284,074   72.3%   ║
+║  FROPs        ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░     312,780    9.9%   ║
+║  Base         ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░     320,000   10.1%   ║
+║  Memory       ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     198,430    6.3%   ║
+║  Precompiles  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░           0    0.0%   ║
+║                                              RAM   1.2 MB / 32 MB    ║
+║                                                                      ║
+║  TOP COST FUNCTIONS                                                  ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  1 sha2::compress256      ████████████░░░░░░░░     983,040   43.0%   ║
+║  2 merkle_root            ██████░░░░░░░░░░░░░░     498,240   21.8%   ║
+║  3 alloc::vec::extend     ████░░░░░░░░░░░░░░░░     312,480   13.7%   ║
+║  4 main                   ███░░░░░░░░░░░░░░░░░     276,480   12.1%   ║
+║  5 alloc::alloc::alloc    ██░░░░░░░░░░░░░░░░░░     214,320    9.4%   ║
+║                                                                      ║
+║                                                                      ║
+║  OPS                             FROPS                               ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄   ║
+║  xor    98,304   983,040  43.0%  loop_counter  8,192  163,840  52.4% ║
+║  add    82,176   328,704  14.4%  ptr_add      12,430  124,300  39.8% ║
+║  mload  12,430   198,430   8.7%  branch_zero   2,048   24,576   7.9% ║
+║  and    49,152   196,608   8.6%                                      ║
+║  mstore  6,840    54,720   2.4%                                      ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+```
+
+**`complete`**: writes the full profiling report to `profiling/`
+in the workspace root. Load the file at
+[profiler.firefox.com](https://profiler.firefox.com) to explore the
+call stack and inverted call stack interactively.

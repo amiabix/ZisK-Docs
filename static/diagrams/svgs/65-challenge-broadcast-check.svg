@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.row { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.row { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.5; }
+.n-out text.name { fill: #15161D; font-weight: 700; font-size: 15px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-out text.row { fill: #15161D; font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.6; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 12px; fill: #4A4C59; font-weight: 500; }
+.edge-label-bg { fill: #FFFFFF; stroke: none; }
+    ]]></style>
+    <marker id="arr65" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+    <marker id="arr65-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+  </defs>
+
+  <!-- Prover P₁ box (top) -->
+  <g class="n-chip" transform="translate(330,40)">
+    <rect width="540" height="100" rx="8"/>
+    <text class="kind" x="270" y="26" text-anchor="middle">prover P₁</text>
+    <text class="row" x="270" y="66" text-anchor="middle">com₁  →  c₁  →  v₁</text>
+  </g>
+
+  <!-- Aggregator box (middle) -->
+  <g class="n-art" transform="translate(330,260)">
+    <rect width="540" height="100" rx="8"/>
+    <text class="kind" x="270" y="26" text-anchor="middle">aggregator</text>
+    <text class="name" x="270" y="66" text-anchor="middle">v₁ + v₂</text>
+  </g>
+
+
+  <!-- Root box (bottom) -->
+  <g class="n-out" transform="translate(280,500)">
+    <rect width="640" height="160" rx="8"/>
+    <text class="kind" x="320" y="26" text-anchor="middle">root</text>
+    <text class="name" x="320" y="62" text-anchor="middle">acc = Σ vᵢ</text>
+    <text class="row" x="320" y="94" text-anchor="middle">α  derived from acc</text>
+    <text class="row" x="320" y="124" text-anchor="middle">check  α  matches broadcast α</text>
+  </g>
+
+  <!-- P₁ → aggregator (partial sum) -->
+  <path class="edge" d="M 600 160 L 600 258" marker-end="url(#arr65)"/>
+  <rect class="edge-label-bg" x="610" y="200" width="120" height="18" rx="3"/>
+  <text class="edge-label" x="670" y="213" text-anchor="middle">partial sum</text>
+
+  <!-- Inbound indicator: "from P₂'s subtree" arrow into aggregator from right -->
+  <path class="edge" d="M 1040 320 L 870 320" marker-end="url(#arr65)"/>
+  <rect class="edge-label-bg" x="890" y="294" width="160" height="18" rx="3"/>
+  <text class="edge-label" x="970" y="307" text-anchor="middle">from P₂'s subtree</text>
+
+  <!-- aggregator → root -->
+  <path class="edge" d="M 600 360 L 600 498" marker-end="url(#arr65)"/>
+</svg>

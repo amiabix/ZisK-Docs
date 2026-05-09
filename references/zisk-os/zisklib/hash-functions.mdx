@@ -1,0 +1,124 @@
+---
+id: hash-functions
+title: Hash functions
+sidebar_position: 2
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+description: SHA-256, Keccak-256, and BLAKE2b compression. Safe wrappers
+  over the hash syscalls.
+---
+
+import FnPage, { FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<FnPage summary="Hash functions provided by zisklib: SHA-256, Keccak-256,
+  and stateful BLAKE2b compression, each dispatching to a dedicated state
+  machine inside the zkVM.">
+
+Each function takes an extra `hints: &mut Vec<u64>` parameter that is gated behind the `hints` Cargo feature. When the feature is disabled (the default for normal proving), the parameter is compiled out and callers omit it. When enabled, the runtime appends per-call witness hints into the supplied vector.
+
+<FnDef name="sha256">
+
+SHA-256 hash over an arbitrary byte slice. Handles padding and multi-block
+inputs automatically via the SHA-256 state machine.
+
+```rust
+pub fn sha256(input: &[u8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u8; 32]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `input` | `&[u8]` | Byte slice to hash. Any length; padding and blocking handled internally. |
+| `hints` | `&mut Vec<u64>` | Only present with `feature = "hints"`. Witness hints are appended for downstream tooling. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u8; 32]` | SHA-256 digest of `input`. |
+
+#### Example
+
+```rust
+let digest: [u8; 32] = zisklib::sha256(b"hello world");
+```
+
+</FnDef>
+
+<FnDef name="keccak256">
+
+Keccak-256 hash using the sponge construction with a 136-byte rate.
+Applies Keccak (not SHA-3) padding: `0x01` domain separator.
+
+```rust
+pub fn keccak256(input: &[u8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u8; 32]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `input` | `&[u8]` | Byte slice to hash. Any length accepted. |
+| `hints` | `&mut Vec<u64>` | Only present with `feature = "hints"`. Witness hints are appended for downstream tooling. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u8; 32]` | Keccak-256 digest of `input`. |
+
+#### Example
+
+```rust
+let digest: [u8; 32] = zisklib::keccak256(b"hello world");
+```
+
+</FnDef>
+
+<FnDef name="blake2b_compress">
+
+Stateful BLAKE2b compression. Applies `rounds` rounds of the BLAKE2b
+mixing function to state `h` in-place, using message block `m`,
+counter `t`, and finalization flag `f`.
+
+```rust
+pub fn blake2b_compress(
+    rounds: u32,
+    h: &mut [u64; 8],
+    m: &[u64; 16],
+    t: &[u64; 2],
+    f: bool,
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `rounds` | `u32` | Number of mixing rounds (standard BLAKE2b uses 12). |
+| `h` | `&mut [u64; 8]` | State vector, modified in-place. |
+| `m` | `&[u64; 16]` | Message block as 16 LE u64 words. |
+| `t` | `&[u64; 2]` | Counter (byte offset) as two u64 words. |
+| `f` | `bool` | Finalization flag. Set `true` for the last block. |
+| `hints` | `&mut Vec<u64>` | Only present with `feature = "hints"`. Witness hints are appended for downstream tooling. |
+
+#### Returns
+
+Nothing. The state `h` is updated in-place.
+
+#### Example
+
+```rust
+let mut h = [0u64; 8];
+let m = [0u64; 16];
+let t = [64u64, 0u64];
+zisklib::blake2b_compress(12, &mut h, &m, &t, true);
+```
+
+</FnDef>
+
+</FnPage>

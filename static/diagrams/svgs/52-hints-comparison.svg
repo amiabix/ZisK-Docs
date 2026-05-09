@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1400 540" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.tag-bad { fill: #C7301F; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; }
+.tag-good { fill: #00B359; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.6; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr52" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <!-- Without hints row -->
+  <g class="subgraph">
+    <rect x="40" y="40" width="1320" height="200" rx="12"/>
+    <text class="label" x="60" y="68">Without hints</text>
+  </g>
+  <g class="n-chip" transform="translate(120,110)">
+    <rect width="320" height="100" rx="8"/>
+    <text class="kind" x="160" y="22" text-anchor="middle">prover</text>
+    <text class="name" x="160" y="50" text-anchor="middle">Full computation</text>
+    <text class="sub" x="160" y="72" text-anchor="middle">runs the work end-to-end</text>
+  </g>
+  <text class="tag-bad" x="280" y="232" text-anchor="middle">expensive</text>
+
+  <g class="n-art" transform="translate(700,110)">
+    <rect width="320" height="100" rx="8"/>
+    <text class="kind" x="160" y="22" text-anchor="middle">artifact</text>
+    <text class="name" x="160" y="50" text-anchor="middle">Witness</text>
+    <text class="sub" x="160" y="72" text-anchor="middle">derived from the result</text>
+  </g>
+  <text class="tag-bad" x="860" y="232" text-anchor="middle">also expensive</text>
+
+  <path class="edge" d="M 440 160 L 700 160" marker-end="url(#arr52)"/>
+  <text class="edge-label" x="570" y="148" text-anchor="middle">derives</text>
+
+  <!-- With hints row -->
+  <g class="subgraph">
+    <rect x="40" y="300" width="1320" height="200" rx="12"/>
+    <text class="label" x="60" y="328">With hints</text>
+  </g>
+
+  <g class="n-chip" transform="translate(80,370)">
+    <rect width="280" height="100" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">host</text>
+    <text class="name" x="140" y="50" text-anchor="middle">Pre-compute witness</text>
+    <text class="sub" x="140" y="72" text-anchor="middle">off-line</text>
+  </g>
+  <text class="tag-good" x="220" y="492" text-anchor="middle">free, off-line</text>
+
+  <g class="n-art" transform="translate(560,370)">
+    <rect width="280" height="100" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">artifact</text>
+    <text class="name" x="140" y="50" text-anchor="middle">Witness</text>
+    <text class="sub" x="140" y="72" text-anchor="middle">supplied via hint stream</text>
+  </g>
+
+  <g class="n-chip" transform="translate(1040,370)">
+    <rect width="280" height="100" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">prover</text>
+    <text class="name" x="140" y="50" text-anchor="middle">Verify</text>
+    <text class="sub" x="140" y="72" text-anchor="middle">cheap check</text>
+  </g>
+  <text class="tag-good" x="1180" y="492" text-anchor="middle">much cheaper than recomputing</text>
+
+  <path class="edge" d="M 360 420 L 560 420" marker-end="url(#arr52)"/>
+  <text class="edge-label" x="460" y="408" text-anchor="middle">writes to hint stream</text>
+
+  <path class="edge" d="M 840 420 L 1040 420" marker-end="url(#arr52)"/>
+  <text class="edge-label" x="940" y="408" text-anchor="middle">verifies</text>
+</svg>

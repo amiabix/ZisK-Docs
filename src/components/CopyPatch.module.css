@@ -1,0 +1,27 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  background: var(--ifm-color-emphasis-100);
+  border: 1px solid var(--ifm-color-emphasis-300);
+  font-size: 0.72rem;
+  font-family: var(--zisk-font-mono, monospace);
+  color: var(--ifm-color-emphasis-700);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  vertical-align: middle;
+}
+
+.btn:hover {
+  background: rgba(10, 191, 131, 0.12);
+  border-color: var(--zisk-soft-green, #0ABF83);
+  color: var(--zisk-soft-green, #0ABF83);
+}
+
+.copied {
+  background: rgba(10, 191, 131, 0.15);
+  border-color: var(--zisk-victorian-peak, #007755);
+  color: var(--zisk-victorian-peak, #007755);
+}

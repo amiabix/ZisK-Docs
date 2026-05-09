@@ -1,0 +1,140 @@
+.wrapper {
+  display: flex;
+  gap: 1.5rem;
+  align-items: stretch;
+  margin: 1.5rem 0;
+  font-family: var(--zisk-font-mono);
+  font-size: 0.85rem;
+}
+
+.panel {
+  background: var(--zisk-io-bg);
+  border: 1px solid var(--zisk-border-dark);
+  border-radius: var(--zisk-radius);
+  overflow: hidden;
+}
+
+.panelBuffer {
+  flex-shrink: 0;
+}
+
+.panelProgram {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 6px 14px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--zisk-text-muted);
+  border-bottom: 1px solid var(--zisk-border-dark);
+  background: var(--zisk-midnight);
+  font-family: system-ui;
+  text-align: center;
+}
+
+/* Buffer panel rows */
+.row {
+  display: flex;
+}
+
+.rowIndex {
+  padding: 8px 12px;
+  width: 2.5rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.rowLabel {
+  padding: 8px 12px;
+  flex: 1;
+  text-align: center;
+  font-size: 0.75rem;
+}
+
+.rowHex {
+  padding: 8px 12px;
+  width: 4rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.rowBytes {
+  padding: 6px 12px;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.byte {
+  font-size: 0.72rem;
+  font-family: var(--zisk-font-mono);
+  letter-spacing: 0;
+}
+
+/* Program panel body */
+.programBody {
+  padding: 14px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  flex: 1;
+  gap: 0.5rem;
+}
+
+.programLine {
+  white-space: nowrap;
+}
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+  .wrapper {
+    gap: 0.5rem;
+    font-size: 0.62rem;
+  }
+
+  .header {
+    font-size: 0.55rem;
+    padding: 4px 8px;
+  }
+
+  .rowIndex {
+    padding: 5px 6px;
+    width: 1.6rem;
+  }
+
+  .rowLabel {
+    padding: 5px 6px;
+    font-size: 0.58rem;
+  }
+
+  .rowHex {
+    padding: 5px 6px;
+    width: 3rem;
+  }
+
+  .rowBytes {
+    padding: 4px 6px;
+    gap: 3px;
+  }
+
+  .byte {
+    font-size: 0.55rem;
+  }
+
+  .programBody {
+    padding: 8px 10px;
+    gap: 0.35rem;
+  }
+
+  .programLine {
+    font-size: 0.55rem;
+    white-space: normal;
+    word-break: break-all;
+  }
+}

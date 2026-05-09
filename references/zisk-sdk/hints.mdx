@@ -1,0 +1,238 @@
+---
+id: hints
+title: ZiskHints
+sidebar_position: 6
+displayed_sidebar: referencesSidebar
+description: Precomputed hints carrier that accelerates witness generation for precompile-heavy guests, verified in-circuit by the prover.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`ZiskHints` carries precomputed cryptographic results so the Assembly executor can skip the most expensive parts of witness generation. Hints live outside the guest's observable input; the prover verifies them in-circuit, so they cannot weaken the proof.
+
+</Summary>
+
+## What hints are
+
+A ZisK proof commits to every step the guest takes, including expensive cryptographic operations like SHA-256, Keccak-256, BN254 / BLS12-381 pairings, and ECDSA recovery. Generating the witness for those operations dominates the proving cost on programs that lean on them.
+
+A **hint** is a precomputed result for one of those operations, generated outside the zkVM and shipped to the prover. The Assembly executor consumes the hint instead of recomputing the operation from scratch, but the proof still encodes a circuit that verifies the hint. A wrong hint produces an unsatisfiable witness and the proof fails to generate.
+
+In short:
+
+- **Without hints** the prover redoes every cryptographic operation while building the witness.
+- **With hints** the prover trusts the hint just long enough to reuse its output, then proves the hint was correct in-circuit.
+
+Hints never enter `io::read` on the guest. They are not part of the guest's input. They are an out-of-band acceleration channel for the prover.
+
+## End-to-end flow
+
+A hinted run has four stages. Each is run once per program; the hint binary itself is regenerated whenever the input changes.
+
+1. **Generate.** The guest is recompiled for the native (non-zkVM) target with `RUSTFLAGS='--cfg zisk_hints'`. Running it emits a hints binary (default `./tmp/hints.bin`, override with `ZISK_HINTS_OUTPUT`).
+2. **Load.** The host calls `ZiskHints::from_file` (or `::memory` / `::from`) to wrap the binary as a `ZiskHints` value.
+3. **Setup.** The host calls `client.setup(&program).with_hints().run()`. The `.with_hints()` flag tells the setup to produce assembly artifacts that consume the hint stream.
+4. **Prove.** The host calls `client.prove(&program, stdin).hints(hints).run()`. The Assembly executor reads the hints, uses each one in place of the corresponding precompile call, and the proof certifies that every consumed hint was correct.
+
+A `ZiskHints` value is immutable and reusable: load it once, pass it to multiple `.execute(...)` / `.prove(...)` calls.
+
+## When to use hints
+
+The win scales with how much of the guest's runtime is spent in the precompile suite. Programs that lean heavily on SHA-256, Keccak-256, ECDSA recovery, modular exponentiation, BN254 / BLS12-381 pairings, KZG verification, or BLAKE2b benefit the most. Ethereum-block validation is the canonical example.
+
+For programs that do not call those primitives, or call them rarely, the cost of generating and shipping hints outweighs the savings. Leave `.with_hints()` off the setup call and `.hints(...)` off the prove call; the defaults are the right choice.
+
+## Constraints
+
+Two requirements must hold for a hinted run to succeed.
+
+- **Assembly executor only.** The Emulator executor does not consume the hints pipeline. Configure the client with `.executor(ExecutorKind::Assembly)`.
+- **Setup and prove must agree.** Setup artifacts produced without `.with_hints()` reject a hinted prove call. Setup artifacts produced with `.with_hints()` expect hints on every prove call. If the agreement is broken, the prover fails before any work is done.
+
+## Wiring it up
+
+The full host program looks like this. The example is adapted from `examples/hints/host/src/main.rs`:
+
+```rust
+use anyhow::Result;
+use zisk_sdk::{ExecutorKind, GuestProgram, ProverClient, ZiskHints, ZiskStdin};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let program = GuestProgram::from_uri("hints/example/zec-reth.elf")?;
+    let hints = ZiskHints::from_file("hints/example/24654300_hints.bin")?;
+
+    let client = ProverClient::embedded()
+        .executor(ExecutorKind::Assembly)
+        .build()?;
+
+    client.upload(&program).run()?;
+    client.setup(&program).with_hints().run()?.await?;
+
+    let result = client
+        .prove(&program, ZiskStdin::new())
+        .hints(hints)
+        .executor(ExecutorKind::Assembly)
+        .run()?
+        .await?;
+
+    Ok(())
+}
+```
+
+The same pattern works for `.execute(...)`. At the SDK layer, `.hints(...)` is only available on `ProveRequest` and `ExecuteRequest`; `VerifyConstraintsRequest` exposes only `.debug_info()` and `.timeout()`.
+
+From the CLI, four commands accept `--hints`: `execute`, `prove`, `verify-constraints`, and `stats`. The CLI path goes through a lower-level hints-stream registration on the prover that the SDK request builders do not expose for `verify-constraints` or `stats`. The flag uses the `file://` scheme:
+
+```bash
+cargo-zisk program-setup -e ./guest.elf --hints
+cargo-zisk prove -e ./guest.elf --hints file:///abs/path/hints.bin -o ./proofs/proof.bin --verify-proofs
+cargo-zisk verify -p ./proofs/proof.bin
+```
+
+`--hints` on `prove` is mutually exclusive with `-i` / `--inputs`. When hints are supplied, the inputs the guest sees are recovered from the hint stream itself rather than from a separate input file. Setup must be re-run with `--hints` (or `-n`) for the assembly ROM to expect them.
+
+## HintsSource: file vs stream
+
+`HintsSource` is the enum the prove API actually accepts. It has two variants:
+
+- **`HintsSource::Hints(Box<ZiskHints>)`** for in-memory or file-backed hints. Use this when the binary is produced ahead of time and reused across runs. This page is mostly about this variant.
+- **`HintsSource::Stream(Box<ZiskStream>)`** for hints delivered live over a Unix socket, QUIC, or gRPC channel. Use this when hints are produced at the same time the prove call is running, e.g. by a parallel native execution that streams results into the prover.
+
+Both `ZiskHints` and `ZiskStream` implement `Into<HintsSource>`, so `.hints(...)` accepts either at the call site.
+
+```rust
+use zisk_sdk::{ZiskHints, ZiskStream};
+
+// File-backed
+let hints = ZiskHints::from_file("hints.bin")?;
+client.prove(&program, stdin).hints(hints).run()?.await?;
+
+// Live transport
+let stream = ZiskStream::grpc();
+client.prove(&program, stdin).hints(stream).run()?.await?;
+```
+
+The remainder of this page documents `ZiskHints` constructors. For the streaming variant, see [`ZiskStream`](./stream).
+
+---
+
+## ZiskHints::new
+
+Create an empty hints carrier.
+
+```rust
+pub fn new() -> Self
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Self` | An empty hints carrier. |
+
+Useful as a placeholder when the hints binary is optional or not yet available. Setting `.with_hints()` on setup but passing an empty `ZiskHints` produces a run that walks the hint pipeline with no entries; prefer omitting `.with_hints()` entirely if no hints will be supplied.
+
+#### Example
+
+```rust
+let hints = ZiskHints::new();
+```
+
+---
+
+## ZiskHints::memory
+
+Wrap raw bytes as a hints carrier.
+
+```rust
+pub fn memory(data: impl AsRef<[u8]>) -> Self
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `impl AsRef<[u8]>` | In-memory bytes (`&[u8]`, `Vec<u8>`, `Box<[u8]>`, etc.). |
+
+Use this when the hints binary is already loaded into memory, for example produced by an in-process native execution earlier in the same program.
+
+#### Example
+
+```rust
+let hints_bytes: Vec<u8> = std::fs::read("hints.bin")?;
+let hints = ZiskHints::memory(hints_bytes);
+```
+
+---
+
+## ZiskHints::from
+
+Serialize a value with bincode and wrap it as a hints carrier.
+
+```rust
+pub fn from<T: Serialize>(data: &T) -> Self
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `&T` | Reference to a serializable value. `T` must implement `serde::Serialize`. |
+
+This constructor exists for symmetry with `ZiskStdin::from` and is rarely the right choice for production hints binaries: the hints stream protocol expects the on-the-wire byte layout described in the [hints stream documentation](https://github.com/0xPolygonHermez/zisk/blob/main/book/getting_started/hints_stream.md), not arbitrary bincode payloads. Use it only when both producer and consumer agree on a custom encoding.
+
+#### Example
+
+```rust
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct CustomPayload { values: Vec<u64> }
+
+let hints = ZiskHints::from(&CustomPayload { values: vec![1, 2, 3] });
+```
+
+---
+
+## ZiskHints::from_file
+
+Load hints from a file on disk.
+
+```rust
+pub fn from_file(path: impl AsRef<Path>) -> anyhow::Result<Self>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | `impl AsRef<Path>` | Path to the hints binary. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `anyhow::Result<Self>` | The loaded hints, or an error if the file is missing or unreadable. |
+
+The standard path. Generate the binary with the guest compiled under `--cfg zisk_hints`, then point `from_file` at the output (default `./tmp/hints.bin`).
+
+#### Example
+
+```rust
+let hints = ZiskHints::from_file("hints.bin")?;
+```
+
+:::note
+`ZiskHints` implements `Default` (equivalent to `new()`) and is immutable after construction. To extend hints incrementally during proving, switch to `ZiskStream::grpc()` and pass the stream to `.hints(...)` instead.
+:::
+
+## Where this picks up
+
+With hints understood, the related references are:
+
+- [`ZiskStream`](./stream): the streaming counterpart, for hints delivered live.
+- [`ZiskStdin`](./stdin): the input carrier the guest actually reads via `io::read`.
+- [`ProverClient`](./prover-client): the `.setup(...).with_hints()` and `.prove(...).hints(...)` entry points.

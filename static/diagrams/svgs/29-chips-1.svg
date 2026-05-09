@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1200 580" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+.edge-label-bg { fill: #FFFFFF; stroke: none; }
+    ]]></style>
+    <marker id="arr29" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-chip" transform="translate(500,20)">
+    <rect width="200" height="80" rx="8"/>
+    <text class="kind" x="100" y="22" text-anchor="middle">execution spine</text>
+    <text class="name" x="100" y="52" text-anchor="middle">Main</text>
+  </g>
+
+  <g class="n-chip" transform="translate(40,220)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">specialist</text><text class="name" x="100" y="52" text-anchor="middle">Arith</text></g>
+  <g class="n-chip" transform="translate(280,220)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">specialist</text><text class="name" x="100" y="52" text-anchor="middle">Binary</text></g>
+  <g class="n-chip" transform="translate(520,220)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">specialist</text><text class="name" x="100" y="52" text-anchor="middle">Keccak</text></g>
+
+  <g class="n-art" transform="translate(40,440)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">lookup</text><text class="name" x="100" y="52" text-anchor="middle">Arith Tables</text></g>
+  <g class="n-art" transform="translate(280,440)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">lookup</text><text class="name" x="100" y="52" text-anchor="middle">Binary Tables</text></g>
+  <g class="n-art" transform="translate(520,440)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">lookup</text><text class="name" x="100" y="52" text-anchor="middle">Keccak Tables</text></g>
+
+  <g class="n-chip" transform="translate(820,440)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">consistency</text><text class="name" x="100" y="52" text-anchor="middle">Memory</text></g>
+
+  <!-- Main -> 3 specialists -->
+  <path class="edge" d="M 540 100 C 480 150, 200 180, 140 218" marker-end="url(#arr29)"/>
+  <path class="edge" d="M 600 100 C 580 150, 400 180, 380 218" marker-end="url(#arr29)"/>
+  <path class="edge" d="M 660 100 C 660 150, 620 180, 620 218" marker-end="url(#arr29)"/>
+
+  <text class="edge-label" x="280" y="160" text-anchor="middle">Op Bus</text>
+  <text class="edge-label" x="490" y="160" text-anchor="middle">Op Bus</text>
+  <text class="edge-label" x="660" y="160" text-anchor="middle">Op Bus</text>
+
+  <!-- specialists -> tables (vertical) -->
+  <path class="edge" d="M 140 300 L 140 438" marker-end="url(#arr29)"/>
+  <path class="edge" d="M 380 300 L 380 438" marker-end="url(#arr29)"/>
+  <path class="edge" d="M 620 300 L 620 438" marker-end="url(#arr29)"/>
+
+  <!-- Keccak -> Memory -->
+  <path class="edge" d="M 720 280 C 800 280, 820 440, 820 470" marker-end="url(#arr29)"/>
+  <text class="edge-label" x="800" y="370" text-anchor="middle">Memory Bus</text>
+</svg>

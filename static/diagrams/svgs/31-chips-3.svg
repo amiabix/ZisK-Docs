@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1380 360" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 13px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 13px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr31" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-chip" transform="translate(20,40)">
+    <rect width="240" height="100" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">memory user</text>
+    <text class="name" x="120" y="58" text-anchor="middle">aligned access</text>
+  </g>
+  <g class="n-chip" transform="translate(20,220)">
+    <rect width="240" height="100" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">memory user</text>
+    <text class="name" x="120" y="48" text-anchor="middle">sub-word /</text>
+    <text class="name" x="120" y="68" text-anchor="middle">unaligned</text>
+  </g>
+
+  <g class="n-chip" transform="translate(560,220)">
+    <rect width="220" height="100" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">specialist</text>
+    <text class="name" x="110" y="58" text-anchor="middle">MemAlign</text>
+  </g>
+  <g class="n-art" transform="translate(560,40)">
+    <rect width="220" height="80" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">code</text>
+    <text class="name" x="110" y="52" text-anchor="middle">MemAlign ROM</text>
+  </g>
+
+  <g class="n-chip" transform="translate(1080,140)">
+    <rect width="240" height="100" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">consistency</text>
+    <text class="name" x="120" y="58" text-anchor="middle">Memory</text>
+  </g>
+
+  <!-- aligned user -> Memory directly -->
+  <path class="edge" d="M 260 90 C 600 90, 900 175, 1080 175" marker-end="url(#arr31)"/>
+  <text class="edge-label" x="700" y="140" text-anchor="middle">Memory Bus · aligned 8-byte</text>
+
+  <!-- sub-word user -> MemAlign -->
+  <path class="edge" d="M 260 270 L 560 270" marker-end="url(#arr31)"/>
+
+  <!-- MemAlign -> Memory -->
+  <path class="edge" d="M 780 270 C 920 270, 1000 215, 1080 215" marker-end="url(#arr31)"/>
+  <text class="edge-label" x="930" y="232" text-anchor="middle">aligned 8-byte ops</text>
+
+  <!-- MemAlign -> ROM -->
+  <path class="edge" d="M 670 220 L 670 120" marker-end="url(#arr31)"/>
+</svg>

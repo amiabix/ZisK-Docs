@@ -1,0 +1,175 @@
+---
+id: wait-job-result
+title: WaitJobResult
+sidebar_position: 4
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Long-poll until a job reaches a terminal state, then
+  return the current status.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Long-poll RPC. The server holds the call open until the job
+reaches a terminal state (`Completed`, `Failed`, or `Cancelled`)
+or the per-call timeout elapses, then returns the current
+status. Loop on this RPC to wait for completion without
+client-side sleeping.
+
+</Summary>
+
+## Signature
+
+```proto
+rpc WaitJobResult(WaitJobResultRequest)
+    returns (WaitJobResultResponse);
+```
+
+| Property | Value |
+| -------- | ----- |
+| Direction | Unary (long-poll) |
+| Idempotent | Yes (status is monotonic toward terminal) |
+| Streams | None |
+
+## Request
+
+```proto
+message WaitJobResultRequest {
+  string          job_id          = 1;
+  optional uint32 timeout_seconds = 2; // server-side hold duration; min 1s, default 5s
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_id` | `string` | Job to wait on. Returned by [`JobRequest`](./job-request). |
+| `timeout_seconds` | `uint32` (optional) | How long the server will hold the call before returning. Minimum 1 s, default 5 s. The job is **not** cancelled when this elapses; you simply get the current status back. |
+
+The `timeout_seconds` knob exists so clients can balance
+liveness against connection count. Short timeouts (1–5 s) make
+the loop responsive and let the client surface intermediate
+state. Long timeouts (30–60 s) reduce gRPC overhead for jobs
+that take minutes.
+
+Long-polling is the middle ground between short polling and a
+push stream: the client owns the call lifetime (so a dropped
+connection does not lose any state, since the next call catches
+up), but the server holds the call open until something
+actually changes, so there is no busy-loop and no fixed wake-up
+interval. If you need every state transition as it happens
+rather than the latest snapshot, use [`WatchJob`](./watch-job)
+instead.
+
+## Response
+
+```proto
+message WaitJobResultResponse {
+  string                   job_id     = 1;
+  JobStatus                job_status = 2;
+  optional JobKindResponse result     = 3; // present when job_status is Completed
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_id` | `string` | Echo of the request `job_id`. |
+| `job_status` | [`JobStatus`](./data-types#jobstatus) | Current status. May be non-terminal if the call returned because of `timeout_seconds`. |
+| `result` | [`JobKindResponse`](./job-request#result-envelope) | Populated only when `job_status` is `Completed`. Variant matches the original job kind. |
+
+## JobStatus values
+
+```proto
+message JobStatus {
+  oneof status {
+    JobStatusQueued          queued            = 1;
+    JobStatusRunning         running           = 2;
+    JobStatusWaitingForInput waiting_for_input = 3;
+    JobStatusCompleted       completed         = 4;
+    JobStatusFailed          failed            = 5;
+    JobStatusCancelled       cancelled         = 6;
+  }
+}
+
+message JobStatusRunning { optional JobPhase phase = 1; }
+message JobStatusFailed  { JobFailure failure = 1; }
+```
+
+| Variant | Terminal? | Notes |
+| ------- | --------- | ----- |
+| `queued` | No | The job is in the coordinator's queue but no worker has picked it up yet. |
+| `running` | No | A worker is processing the job. `phase` (optional) reports which sub-stage; see [`JobPhase`](./data-types#jobphase). |
+| `waiting_for_input` | No | The job has paused because it needs more input or hint chunks. Send them with [`PushJobInput`](./streaming-input). |
+| `completed` | **Yes** | Success. Read `result` for the output. |
+| `failed` | **Yes** | The job ran but did not succeed. `failure` carries the reason; see [`JobFailure`](./data-types#jobfailure). |
+| `cancelled` | **Yes** | The job was cancelled via [`CancelJob`](./cancel-job). |
+
+The status progresses monotonically toward a terminal state.
+Once terminal, it does not change.
+
+## Loop pattern
+
+```rust title="Wait-loop in Rust + tonic"
+loop {
+    let resp = client
+        .wait_job_result(WaitJobResultRequest {
+            job_id: job_id.clone(),
+            timeout_seconds: Some(30),
+        })
+        .await?
+        .into_inner();
+
+    use job_status::Status::*;
+    match resp.job_status.and_then(|s| s.status) {
+        Some(Completed(_)) => return Ok(resp.result),
+        Some(Failed(f))    => bail!("job failed: {:?}", f.failure),
+        Some(Cancelled(_)) => bail!("job cancelled"),
+        Some(Queued(_)) | Some(Running(_)) | Some(WaitingForInput(_)) => continue,
+        None => continue,
+    }
+}
+```
+
+The loop is the canonical pattern. Because the server holds the
+call open, the loop body runs **once per state change** (or
+once per `timeout_seconds`, whichever happens first), not once
+per millisecond. There is no need for client-side sleeping.
+
+`WaitingForInput` is intentionally treated the same as
+`Queued` and `Running`. The loop just continues. The wait
+loop is purely an observer; it does not push input itself. If
+the job needs more input, a separate task (or another part of
+the same client) must be calling
+[`PushJobInput`](./streaming-input) in parallel. Once a fresh
+chunk arrives, the job transitions back to `Running` and the
+next `WaitJobResult` call reflects that.
+
+## Behaviour
+
+- **Calling on an already-terminal job** returns the terminal
+  status immediately. Safe to call after the job is done.
+- **Calling on a non-existent `job_id`** returns `NotFound` /
+  `JOB_NOT_FOUND`.
+- **Server-side timeout elapses** returns the current
+  non-terminal status with `result` empty. Loop again.
+- **Client-side deadline** (`tonic::Request::set_timeout`)
+  shorter than `timeout_seconds` returns
+  `Status::DeadlineExceeded`; the job is not affected.
+
+## Errors
+
+| gRPC status | Error | When |
+| ----------- | ----- | ---- |
+| `NotFound` | `JOB_NOT_FOUND` (1001) | `job_id` is not known to the coordinator. |
+| `Internal` | `INTERNAL` (3001) | Server-side failure observing the job. |
+
+See [Errors](./errors) for the full table.
+
+## See also
+
+- [WatchJob](./watch-job): push-based alternative; receive
+  every event as it happens.
+- [JobStatus](./data-types#jobstatus) and
+  [JobFailure](./data-types#jobfailure).

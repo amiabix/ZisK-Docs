@@ -1,0 +1,131 @@
+---
+id: errors
+title: Errors
+sidebar_position: 9
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Stable numeric error codes, gRPC status mapping,
+  and how to recover from each.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Every API error has a stable numeric code, a stable name, and
+a gRPC status. Codes are guaranteed not to change across
+coordinator versions; clients can branch on them safely.
+
+</Summary>
+
+## ApiError envelope
+
+```proto
+message ApiError {
+  uint32 code    = 1; // stable numeric code (see error table below)
+  string name    = 2; // e.g. "JOB_NOT_FOUND"
+  string message = 3; // human-readable detail
+}
+```
+
+The `Status.code` field carries the corresponding gRPC code (see the table below) and `Status.message` carries the human-readable detail.
+
+:::note
+The current coordinator build does **not** serialise the `ApiError` proto into `Status.details`. Clients receive the gRPC code plus message only. The numeric `code` field shown in the table below is defined in source for stable identification, but is not currently attached to the on-the-wire `Status`. Treat the table as the authoritative mapping for gRPC code + name; do not write code that depends on parsing `Status.details`.
+:::
+
+## Error code table
+
+| Code | Name | gRPC status | Meaning | Recovery |
+| ---- | ---- | ----------- | ------- | -------- |
+| `1001` | `JOB_NOT_FOUND` | `NotFound` | The supplied `job_id` is not known to the coordinator. | Verify the `job_id`. The coordinator restarts forget non-terminal jobs; if the coordinator restarted, the job is gone. |
+| `1002` | `PROGRAM_NOT_FOUND` | `NotFound` | The supplied `hash_id` has no registered ELF. | Call [`RegisterGuestProgram`](./register-guest-program) and retry. |
+| `1003` | `PROGRAM_NOT_SETUP` | `NotFound` | The program is registered but its setup has not completed. | Submit a [`SetupRequest`](./job-request#setup) and wait for it to finish. |
+| `1004` | `INVALID_JOB_STATE` | `InvalidArgument` | The RPC is invalid for the job's current state. For example, pushing input to a terminal job, or pushing input after EOF was already signalled. | Re-check the job state with [`WaitJobResult`](./wait-job-result). |
+| `1005` | `INVALID_PROOF_CONVERSION` | `InvalidArgument` | A [`WrapRequest`](./job-request#wrap) requested an unsupported source-to-destination conversion (e.g. wrap into `STARK`). | See the wrap rules in [ProofKind](./data-types#proofkind). |
+| `2001` | `CLUSTER_UNAVAILABLE` | `Unavailable` | No workers are connected, workers are mid-setup, or the cluster otherwise can't accept work right now. | Retry with backoff. The coordinator log will explain why. |
+| `3001` | `INTERNAL` | `Internal` | Something went wrong server-side. The underlying detail is not propagated to the client; the coordinator logs it server-side. | Read the coordinator logs around the time of the failure. File an issue if it persists. |
+
+The codes themselves are stable. New codes may be added in
+later versions; clients should treat unknown codes as
+non-retryable internal errors by default.
+
+## How errors map to gRPC status
+
+```
+NotFound        ← JOB_NOT_FOUND, PROGRAM_NOT_FOUND, PROGRAM_NOT_SETUP
+InvalidArgument ← INVALID_JOB_STATE, INVALID_PROOF_CONVERSION
+Unavailable     ← CLUSTER_UNAVAILABLE
+Internal        ← INTERNAL
+```
+
+The `gRPC status → meaning` mapping follows the standard:
+
+- `NotFound`: the named resource doesn't exist. Don't retry
+  blindly; verify the identifier.
+- `InvalidArgument`: the request itself is wrong. Don't retry;
+  fix the request.
+- `Unavailable`: the server is temporarily unable to handle the
+  request. Retry with backoff.
+- `Internal`: something went wrong on the server. Retry once at
+  most; investigate if it persists.
+
+## Internal errors
+
+Internal failures are deliberately opaque to the client. The coordinator logs each failure at `ERROR` level with structured fields (`error_code`, `error_name`, `detail`); the on-the-wire `Status` carries only the gRPC code and a generic message.
+
+The current build does **not** generate or attach a `trace_id` to RPC errors. Correlate a client-side failure with the server-side log by request timing, the `method` of the failing RPC, and any contextual identifiers your client logs (job IDs, hash IDs).
+
+To inspect server-side detail:
+
+```bash
+# systemd
+journalctl -u zisk-coordinator -p err
+
+# Docker Compose
+docker compose logs coordinator | grep -i error
+```
+
+The [`JobFailureInternal`](./data-types#jobfailure) variant on a job-level failure carries a `trace_id` field for the *job's* own internal failure path; that is distinct from RPC errors and is documented separately.
+
+## Job-level failures vs RPC errors
+
+Two different failure surfaces exist. Don't conflate them:
+
+- **RPC errors** (this page) mean the RPC itself failed. The gRPC
+  `Status` is non-`OK`. There is no job result to read.
+- **Job-level failures** mean the RPC succeeded, but the job ran
+  and failed. The job's terminal status is
+  [`JobStatusFailed`](./data-types#jobstatus) and carries a
+  [`JobFailure`](./data-types#jobfailure) detail. The RPC
+  itself was fine.
+
+For example: a `Prove` request whose job times out comes back
+as gRPC `Ok` with `JobStatusFailed { failure: timeout }` from
+`WaitJobResult`, *not* as a gRPC `DeadlineExceeded` error.
+
+## Retry recipe
+
+A practical retry policy for clients:
+
+```
+match status.code:
+  Unavailable    → retry with exponential backoff (50ms → 5s, max ~5 attempts)
+  Internal       → retry once after a short delay, then give up
+  NotFound       → do not retry; verify identifiers
+  InvalidArgument → do not retry; fix the request
+  DeadlineExceeded → do not retry the same call; reconnect with WaitJobResult or WatchJob
+  Cancelled      → server is shutting down; retry against the new server after a delay
+```
+
+The SDK's [`RemoteClient`](/references/zisk-sdk/prover-client)
+implements roughly this policy. If you're calling the gRPC API
+directly, build something similar.
+
+## See also
+
+- [Overview: Retry semantics](./overview#retry-semantics) for
+  how this fits into the broader RPC contract.
+- [JobFailure](./data-types#jobfailure) for the parallel
+  taxonomy of *job-level* failure causes.

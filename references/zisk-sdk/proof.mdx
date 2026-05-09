@@ -1,0 +1,639 @@
+---
+id: proof
+title: Proof
+sidebar_position: 7
+displayed_sidebar: referencesSidebar
+description: Persisted output of a successful prove run; carries proof bytes,
+  public values, program verification key, and verifier keys.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+A `Proof` packages the persisted output of a successful prove run: proof bytes, public values, program verification key, and verifier keys. Load from disk, verify locally, or convert formats for on-chain interop.
+
+</Summary>
+
+## What a Proof is
+
+A `Proof` is the persisted output of a successful prove run. It is fully self-contained: every field needed to verify it travels with it, so verification does not contact the prover, the coordinator, or any setup artifact on disk.
+
+```rust
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct Proof {
+    pub proof_kind:  ProofKind,
+    pub proof_bytes: Vec<u8>,
+    pub publics:     PublicValues,
+    pub program_vk:  ProgramVK,
+    pub zisk_vk:     ZiskVK,
+}
+```
+
+The five fields:
+
+- **`proof_kind`** records the format (`VadcopFinal`, `VadcopFinalMinimal`, or `Plonk`). The verifier picks its path from this.
+- **`proof_bytes`** are the raw proof bytes. Their interpretation depends on `proof_kind`.
+- **`publics`** are the public values the guest committed. The output the application cares about lives here.
+- **`program_vk`** is the 32-byte program verification key, derived from the guest ELF at setup time. It anchors the proof to a specific program.
+- **`zisk_vk`** carries the verifier keys (the Vadcop verifier key on its own for Vadcop proofs; the Vadcop key plus the Plonk verifier key JSON for Plonk proofs).
+
+A proof is bincode-encoded on disk. `Proof::save` and `Proof::load` move it between memory and a file. All five fields are `pub`, so a `Proof` can also be constructed by struct literal or via `Proof::new(...)` when piecing together a proof from individual components.
+
+## End-to-end: what you do with a Proof
+
+Three patterns cover almost every use of `Proof`:
+
+1. **Load and verify.** The default path. `Proof::load("proof.bin")?.verify()?` re-checks the proof from disk without re-executing the guest.
+2. **Verify and read public values.** `proof.verify()` then `proof.get_publics()` followed by `read::<T>()` / `read_slice(&mut buf)` / `read_abi::<T>()` to pull the committed outputs back out.
+3. **Convert format.** Wrap a Vadcop proof into `Plonk` (or `VadcopFinalMinimal`) via `client.wrap_proof(&proof, kind)` for downstream consumers, then `save` the wrapped result.
+
+```rust
+use zisk_sdk::Proof;
+
+let proof = Proof::load("proof.bin")?;
+
+// 1. Confirm the proof itself is valid.
+proof.verify()?;
+
+// 2. Read what the guest committed.
+let publics = proof.get_publics();
+let mut digest = [0u8; 32];
+publics.read_slice(&mut digest);
+```
+
+## Verification: three things to check
+
+A passing `proof.verify()` is necessary but not sufficient. A trustworthy verification pass also checks that the proof is for the program you expect and that the public values match what your application requires.
+
+- **The proof is well-formed.** `proof.verify()` confirms the proof bytes satisfy the verifier circuit for the proof kind, using the program verification key and the public values stored inside the proof.
+- **The program is the one you expect.** `proof.get_program_vk()` is a commitment to the guest ELF. Compare it against a program verification key you derived independently (via `GuestProgram::vk()` over the audited source) before trusting the proof.
+- **The public values match.** Read them back via `proof.get_publics()` and compare against the values your application requires. A valid proof of an irrelevant computation is still useless.
+
+For on-chain EVM verification, the same `proof.verify()` runs off-chain as a sanity check; the Solidity verifier consumes the Plonk proof bytes plus the calldata produced by `PublicValues::bytes_solidity` / `hash_solidity`.
+
+## When to override publics or program_vk
+
+`proof.verify()` uses the proof's embedded `publics` and `program_vk`. Override either one when the verifier is supplied them out of band rather than trusting what the prover bundled in.
+
+- **`with_publics(&pv)`**: verify against the public values your application computed locally, not the ones the proof carries. Useful when the publics are part of a separate consensus message and the proof is just the witness.
+- **`with_program_vk(&vk)`**: verify against a program verification key you derived from a trusted ELF (or that was published by an auditor). Defends against a prover that swaps the embedded `program_vk` for one tied to a different guest.
+
+Both methods return a `ZiskVerifyBuilder` and are chainable. Verification is local and synchronous; there is no `client.verify(...)`. Construct the builder via `proof.with_publics(...)` or `proof.with_program_vk(...)`.
+
+---
+
+## Proof::verify
+
+Verify the proof using the public values and program verification key stored inside it.
+
+```rust
+pub fn verify(&self) -> Result<()>
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<()>` | `Ok(())` if the proof is valid, `Err` otherwise. |
+
+The proof kind determines the verifier path:
+
+- `VadcopFinal` calls `verify_vadcop_final` against the embedded `zisk_vk`.
+- `VadcopFinalMinimal` calls `verify_vadcop_final_compressed` against the embedded `zisk_vk`.
+- `Plonk` parses the embedded `zisk_vk` blob (`[vadcop_vk_len: u32 LE | vadcop_vk_bytes | plonk_vkey_json]`), writes the Plonk vkey JSON to a temporary file, then calls `verify_snark_proof`. The temp file is removed before the function returns.
+
+In all three cases the call is local and synchronous; nothing is sent over the network.
+
+`verify()` returns `Err` when the proof bytes do not satisfy the verifier circuit, when the embedded keys are malformed, or (for Plonk) when the temporary vkey file cannot be written. The error message is intentionally generic; do not parse it for branching logic.
+
+#### Example
+
+```rust
+let proof = Proof::load("proof.bin")?;
+proof.verify()?;
+```
+
+:::note
+Verification runs synchronously on the local machine. It does not contact any remote service and does not require a prover client.
+:::
+
+---
+
+## Proof::with_publics
+
+Begin a verification chain with overridden public values.
+
+```rust
+pub fn with_publics<'a>(&'a self, publics: &'a PublicValues) -> ZiskVerifyBuilder<'a>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `publics` | `&PublicValues` | Public values to use instead of those embedded in the proof. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `ZiskVerifyBuilder<'a>` | Builder for chaining further overrides before `.verify()`. |
+
+The override is purely a verification-time substitution. The proof itself is unmodified; it still carries its original `publics` field. The next `.verify()` call on the builder uses `publics` from this method instead of the embedded value, but the underlying `proof.verify()` (with no overrides) still uses the embedded value.
+
+The lifetime constraint `&'a self`, `&'a PublicValues` ties the builder's lifetime to both the proof and the override. Both must outlive the eventual `.verify()` call.
+
+#### Example
+
+```rust
+let custom = PublicValues::new_empty();
+proof.with_publics(&custom).verify()?;
+```
+
+---
+
+## Proof::with_program_vk
+
+Begin a verification chain with an overridden program verification key.
+
+```rust
+pub fn with_program_vk<'a>(&'a self, program_vk: &'a ProgramVK) -> ZiskVerifyBuilder<'a>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `program_vk` | `&ProgramVK` | Program commitment to use instead of the embedded one. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `ZiskVerifyBuilder<'a>` | Builder for chaining further overrides. |
+
+Same semantics as `with_publics`: the proof's stored `program_vk` is unchanged; only the verification-time check uses the override.
+
+The most common use is pinning verification to a `ProgramVK` you derived from a trusted ELF (via `GuestProgram::vk()`) rather than trusting the one the prover bundled into the proof. A mismatch between the override and the embedded value causes `.verify()` to return `Err` even if the proof is internally consistent.
+
+#### Example
+
+```rust
+use zisk_sdk::GuestProgram;
+
+// Derive the canonical VK from an audited ELF.
+let trusted_vk = AUDITED_PROGRAM.vk()?;
+
+// Reject any proof whose embedded VK doesn't match.
+proof.with_program_vk(&trusted_vk).verify()?;
+```
+
+---
+
+## ZiskVerifyBuilder
+
+Chain configuration overrides before running local verification.
+
+```rust
+pub struct ZiskVerifyBuilder<'a> { /* opaque */ }
+
+impl<'a> ZiskVerifyBuilder<'a> {
+    pub fn with_publics(self, pv: &'a PublicValues) -> Self;
+    pub fn with_program_vk(self, vk: &'a ProgramVK) -> Self;
+    pub fn verify(self) -> Result<()>;
+}
+```
+
+The builder is obtained by calling `proof.with_publics()` or `proof.with_program_vk()`. There is no public constructor; you cannot build one directly.
+
+Both override methods return `Self`, so they can be chained in any order. Each call replaces the corresponding override slot on the builder; calling `.with_publics(&a).with_publics(&b)` ends up with `b` as the active override (the last call wins).
+
+The final `.verify()` call uses the supplied overrides where set and falls back to the proof's embedded values where not. In source terms (`common/src/proof.rs:382-386`):
+
+```rust
+let publics    = self.override_publics.unwrap_or(&self.proof.publics);
+let program_vk = self.override_program_vk.unwrap_or(&self.proof.program_vk);
+let zisk_vk    = &self.proof.zisk_vk; // never overridable
+```
+
+`zisk_vk` is **not** overridable through this builder. The verifier-key blob always comes from the proof itself.
+
+#### Example
+
+```rust
+let custom_publics = PublicValues::new_empty();
+let custom_vk = ProgramVK::new_empty();
+
+proof
+    .with_publics(&custom_publics)
+    .with_program_vk(&custom_vk)
+    .verify()?;
+```
+
+---
+
+## Proof::new
+
+Construct a Proof from its constituent parts.
+
+```rust
+pub fn new(
+    proof_kind:  ProofKind,
+    proof_bytes: Vec<u8>,
+    publics:     PublicValues,
+    program_vk:  ProgramVK,
+    zisk_vk:     ZiskVK,
+) -> Self
+```
+
+A pass-through constructor that fills the five public fields. Use it when piecing together a `Proof` from values produced by other paths (a custom prover backend, an integration test, a tool that decodes an externally-formatted proof). For the regular flow, `Proof::load` is the right entry point.
+
+A struct literal works too, since every field is `pub`.
+
+---
+
+## Proof::load
+
+Load a Proof from a bincode-encoded file.
+
+```rust
+pub fn load(path: impl AsRef<Path>) -> Result<Self>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | `impl AsRef<Path>` | Path to the bincode-encoded proof file. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<Self>` | The decoded proof, or an error if the file is missing, unreadable, or not a valid bincode encoding of a `Proof`. |
+
+The expected producer is `Proof::save` or `cargo-zisk prove -o <path>`. Both write the same bincode layout, so a proof saved by either path can be loaded by either path.
+
+#### Example
+
+```rust
+let proof = Proof::load("output/proof.bin")?;
+```
+
+---
+
+## Proof::save
+
+Save a Proof to a bincode-encoded file.
+
+```rust
+pub fn save(&self, path: impl AsRef<Path>) -> Result<()>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | `impl AsRef<Path>` | Destination file path. The parent directory must already exist. |
+
+Writes a bincode-encoded `Proof` to the path. Errors propagate from `File::create` (no parent directory, permission denied, disk full) and from bincode itself.
+
+#### Example
+
+```rust
+proof.save("output/my_proof.bin")?;
+```
+
+---
+
+## Proof::get_publics
+
+Return a reference to the public values.
+
+```rust
+pub fn get_publics(&self) -> &PublicValues
+```
+
+A borrow into `proof.publics`. Cheap; never copies. The returned reference shares the proof's internal cursor (`PublicValues` has an `AtomicUsize` read pointer), so consecutive `read` / `read_slice` calls on the borrow advance the same cursor a subsequent borrow would see. Call `publics.head()` to rewind.
+
+---
+
+## Proof::get_program_vk
+
+Return a reference to the program verification key.
+
+```rust
+pub fn get_program_vk(&self) -> &ProgramVK
+```
+
+A borrow into `proof.program_vk`. Use it to compare the embedded VK against an externally-trusted one before deciding to honour the proof.
+
+---
+
+## Proof::get_vk
+
+Return a reference to the verifier key bytes.
+
+```rust
+pub fn get_vk(&self) -> &ZiskVK
+```
+
+A borrow into `proof.zisk_vk`. The interpretation depends on `proof_kind`:
+
+- For Vadcop proofs, the bytes are the raw Vadcop verifier key.
+- For Plonk proofs, the bytes are the encoded blob `[vadcop_vk_len: u32 LE | vadcop_vk_bytes | plonk_vkey_json]`. Slice `[0..4]` for the length; `[4..4+len]` for the Vadcop key; `[4+len..]` for the Plonk vkey JSON.
+
+---
+
+## Proof::get_proof_bytes
+
+Return the proof bytes packaged for recursive verification.
+
+```rust
+pub fn get_proof_bytes(&self) -> Vec<u8>
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Vec<u8>` | A self-contained byte blob suitable for feeding into an aggregation guest via `io::read_input_slice()`. |
+
+Builds a packaged byte layout (`common/src/proof.rs:507-515`):
+
+```text
+[ minimal_flag (8 bytes LE u64) | pubs_len (8 bytes LE u64) | pubs | proof_bytes | zisk_vk ]
+```
+
+`minimal_flag` is `1` for `VadcopFinalMinimal` and `0` for `VadcopFinal`. `pubs` is `program_vk.vk` followed by `publics.public_bytes()` (the 512-byte u64-padded public values, see [`PublicValues::public_bytes`](#publicvaluespublic_bytes)).
+
+:::warning
+**Vadcop only.** Calling `get_proof_bytes()` on a `Plonk` proof panics. Plonk proofs cannot be verified inside an aggregation guest, so the packaging makes no sense for them.
+:::
+
+---
+
+## PublicValues
+
+The public output region committed by the guest, fixed at 256 bytes (64 thirty-two-bit slots).
+
+```rust
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub struct PublicValues {
+    data: Vec<u8>,         // length always 256
+    #[serde(skip)]
+    ptr:  AtomicUsize,     // read cursor
+}
+```
+
+The internal layout is fixed: `data` is always 256 bytes (`ZISK_PUBLICS * 4` where `ZISK_PUBLICS = 64`). Read methods advance an internal `AtomicUsize` cursor, which means `&PublicValues` is enough to read sequentially without an `&mut`. Call `head()` to rewind the cursor.
+
+`PublicValues` implements `Default` (zeroed 256-byte buffer with cursor at 0) and `Clone` (cursor copied at the current position). It is `Serialize` + `Deserialize`, but the cursor is `#[serde(skip)]` and reset to 0 on deserialisation.
+
+### Constructors
+
+```rust
+pub fn new(publics_bytes: &[u8]) -> Self                         // 544-byte VadcopFinal blob
+pub fn new_empty() -> Self                                       // zero-filled
+pub fn write<T: Serialize>(value: &T) -> Result<Self>            // bincode-encoded
+pub fn write_abi<T: SolValue>(value: &T) -> Result<Self>         // Solidity ABI-encoded
+```
+
+- **`new`** decodes a 544-byte Vadcop public-output blob (32-byte program VK + 64 × 8-byte u64 values). It re-packs the u64 lower 32 bits into the 256-byte 32-bit-slot layout used internally. Asserts `publics_bytes.len() == ZISK_PUBLICS * 8 + 32 = 544`; panics otherwise.
+- **`new_empty`** returns a 256-byte zero buffer with the cursor at 0.
+- **`write<T>`** bincode-serialises `T` and packs it into the 256-byte buffer (4 bytes per slot, padded). Returns `Err` if the serialised form exceeds 256 bytes.
+- **`write_abi<T>`** ABI-encodes `T` and packs it the same way. Returns `Err` if the encoded form exceeds 256 bytes.
+
+### Read methods
+
+```rust
+pub fn read<T: Serialize + DeserializeOwned>(&self) -> Result<T>
+pub fn read_abi<T: SolValue>(&self)                  -> Result<T>
+pub fn read_slice(&self, slice: &mut [u8])
+pub fn head(&self)
+```
+
+All four take `&self` (interior mutability via the atomic cursor). `read` and `read_abi` advance the cursor by the consumed serialised size; `read_slice` advances by `slice.len()`; `head()` resets the cursor to 0.
+
+Note `read<T>`'s constraint: the source signature is `T: serde::Serialize + serde::de::DeserializeOwned`. Both bounds are required because the implementation needs to compute the serialised size of the deserialised value to advance the cursor correctly.
+
+The cursor is shared across clones of the borrow returned by `proof.get_publics()`. Concurrent reads on the same `PublicValues` interleave their cursor advances; if multiple tasks need independent cursors, clone the `PublicValues` and use the clones.
+
+### Solidity helpers
+
+```rust
+pub fn public_bytes(&self) -> Vec<u8>
+pub fn bytes_u64(&self, program_vk: &ProgramVK) -> Vec<u8>
+pub fn bytes_solidity(&self, program_vk: &ProgramVK, vadcop_verkey: &[u8]) -> Vec<u8>
+pub fn hash_solidity(&self, program_vk: &ProgramVK, vadcop_verkey: &[u8]) -> Vec<u8>
+```
+
+Four byte-builder helpers for downstream verifiers and proof packaging.
+
+---
+
+## PublicValues::public_bytes
+
+Re-expand the 256-byte buffer into the 512-byte u64-padded form.
+
+```rust
+pub fn public_bytes(&self) -> Vec<u8>
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Vec<u8>` | A 512-byte buffer: 64 × 8 bytes, where each 8-byte chunk is `[u32 LE value, 0, 0, 0, 0]`. |
+
+The internal `data` stores 64 × 4-byte slots packed back-to-back (256 bytes). `public_bytes()` re-expands each slot into a u64 by zero-padding the upper 32 bits, producing 64 × 8 = 512 bytes. This is the layout the proof system uses internally for recursion and aggregation.
+
+This is **not** the EVM-calldata layout. EVM verifiers consume the 256-byte form via `bytes_solidity()`. Use `public_bytes()` only when feeding a child proof into an aggregation guest, or when the receiving system explicitly expects the u64-padded form.
+
+#### Example
+
+```rust
+let publics = proof.get_publics();
+let padded = publics.public_bytes();
+assert_eq!(padded.len(), 512); // 64 × 8 bytes
+```
+
+---
+
+## PublicValues::bytes_u64
+
+Return `[program_vk | public_bytes()]` as a contiguous byte vector.
+
+```rust
+pub fn bytes_u64(&self, program_vk: &ProgramVK) -> Vec<u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `program_vk` | `&ProgramVK` | Program VK to prepend. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Vec<u8>` | `program_vk.vk` (32 bytes) followed by `public_bytes()` (512 bytes). |
+
+A convenience helper for callers that need the u64-padded layout prefixed with the program VK. Used internally by recursive proof packaging; user code rarely needs it directly.
+
+---
+
+## PublicValues::bytes_solidity
+
+Build the EVM verifier preimage.
+
+```rust
+pub fn bytes_solidity(&self, program_vk: &ProgramVK, vadcop_verkey: &[u8]) -> Vec<u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `program_vk` | `&ProgramVK` | The 32-byte program VK to prepend. |
+| `vadcop_verkey` | `&[u8]` | The Vadcop verifier key bytes (extracted from `proof.zisk_vk` for Plonk proofs). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Vec<u8>` | A 320-byte preimage: `[program_vk_be(32) | publics(256) | vadcop_vk_be(32)]`. |
+
+The first 32 and last 32 bytes are not raw bytes from `program_vk` and `vadcop_verkey`. The function reads each 8-byte chunk as a little-endian `u64`, re-encodes it as big-endian, then writes the result. This LE-to-BE swap matches what Solidity verifiers expect.
+
+The middle 256 bytes are the raw `data` buffer (the same layout `read_slice` reads from). No transformation; bytes go on the wire exactly as the guest committed them.
+
+This is the preimage the Solidity verifier hashes and checks against the proof. Use `hash_solidity` to get the hash directly.
+
+---
+
+## PublicValues::hash_solidity
+
+Return the SHA-256 of `bytes_solidity(...)`.
+
+```rust
+pub fn hash_solidity(&self, program_vk: &ProgramVK, vadcop_verkey: &[u8]) -> Vec<u8>
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Vec<u8>` | 32 bytes: `SHA-256(bytes_solidity(program_vk, vadcop_verkey))`. |
+
+The Solidity verifier consumes this hash as part of its public-input commitment. Most callers want this rather than the full preimage.
+
+#### Example: full Solidity-side payload
+
+```rust
+let proof = Proof::load("proof.bin")?;
+let publics = proof.get_publics();
+let program_vk = proof.get_program_vk();
+let zisk_vk = proof.get_vk();
+
+// For Plonk proofs, zisk_vk is [vadcop_vk_len: u32 LE | vadcop_vk | plonk_json]
+let vadcop_len = u32::from_le_bytes(zisk_vk[0..4].try_into()?) as usize;
+let vadcop_vk = &zisk_vk[4..4 + vadcop_len];
+
+let preimage = publics.bytes_solidity(program_vk, vadcop_vk);
+let hash = publics.hash_solidity(program_vk, vadcop_vk);
+```
+
+---
+
+## ProgramVK
+
+The program verification key, a 32-byte ROM commitment that anchors a proof to a specific guest program.
+
+```rust
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub struct ProgramVK {
+    pub vk: Vec<u8>,
+}
+```
+
+The `vk` field is always 32 bytes for valid program verification keys. `Default` produces a 32-byte zero-filled buffer (same as `new_empty`).
+
+### Constructors
+
+```rust
+pub fn new_from_publics(publics: &[u8]) -> Self  // extracts first 32 bytes; panics if publics.len() < 32
+pub fn new_empty() -> Self                        // 32-byte zero buffer
+```
+
+`new_from_publics` is used internally when parsing a raw Vadcop proof blob (where the first 32 bytes are the program VK). It asserts `publics.len() >= 32` and panics otherwise.
+
+`new_empty` is useful as a placeholder, or as the override target when verifying a proof whose embedded VK should be discarded in favour of an externally-trusted value.
+
+The program verification key is computed at setup time via `rom_merkle_setup_verkey`. `GuestProgram::vk()` returns it directly; the prover stores it inside `Proof.program_vk` at proof time so the verifier can find it without a separate lookup.
+
+---
+
+## ZiskVK
+
+Type alias for the verifier key bytes.
+
+```rust
+pub type ZiskVK = Vec<u8>;
+```
+
+The interpretation depends on `proof_kind`:
+
+- **Vadcop proofs** (`VadcopFinal`, `VadcopFinalMinimal`): `zisk_vk` is the raw Vadcop verifier key.
+- **Plonk proofs**: `zisk_vk` encodes `[vadcop_vk_len: u32 LE | vadcop_vk_bytes | plonk_vkey_json]`. The first 4 bytes are the length of the Vadcop key as a little-endian `u32`; the next `len` bytes are the Vadcop key; the rest is the JSON-encoded `PlonkVkey`.
+
+The encoder is `encode_plonk_zisk_vk(vadcop_vk, plonk_vkey)` in `common/src/proof.rs:137`. The decoder is `Proof::verify` for the Plonk path; user code that needs to inspect a Plonk `zisk_vk` can mirror the same parsing logic.
+
+---
+
+## PlonkVkey
+
+Plonk-specific verifier key with curve parameters and gate commitments.
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlonkVkey {
+    pub protocol: String,
+    pub curve:    String,
+    pub n_public: u32,            // serde rename: "nPublic"
+    pub power:    u32,
+    pub k1:       String,
+    pub k2:       String,
+    pub qm:       [String; 3],    // serde rename: "Qm"
+    pub ql:       [String; 3],    // "Ql"
+    pub qr:       [String; 3],    // "Qr"
+    pub qo:       [String; 3],    // "Qo"
+    pub qc:       [String; 3],    // "Qc"
+    pub s1:       [String; 3],    // "S1"
+    pub s2:       [String; 3],    // "S2"
+    pub s3:       [String; 3],    // "S3"
+    pub x_2:      [[String; 2]; 3], // "X_2"
+    pub w:        String,
+}
+```
+
+Several fields use serde rename attributes (`Qm`, `Ql`, etc.) so the on-disk JSON matches the convention used by snarkjs and other Plonk verifier tooling.
+
+### Methods
+
+```rust
+pub fn load(path: impl AsRef<Path>) -> Result<Self>          // JSON
+pub fn save(&self, path: impl AsRef<Path>) -> Result<()>     // JSON; creates parent dirs
+```
+
+`save` calls `std::fs::create_dir_all(parent)` before writing, so missing parent directories are created automatically. `load` does not have a corresponding fallback; the file must exist.
+
+User code rarely touches `PlonkVkey` directly; it is embedded inside `ZiskVK` for Plonk proofs and is decoded by `Proof::verify` when needed.
+
+## See also
+
+- [Proof kinds](/references/zisk-sdk/proof-kinds): variants and selection.
+- [Pipeline requests](/references/zisk-sdk/pipeline-requests): wrap proofs to other formats.
+- [GuestProgram](/references/zisk-sdk/guest-program): produce a `ProgramVK` for verification.

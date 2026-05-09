@@ -1,0 +1,379 @@
+---
+id: outputs
+sidebar_position: 4
+title: Committing outputs
+description: Expose computation results as public outputs in the proof using typed commits, raw slices, or compressed hashes.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+A guest publishes results by committing them to the proof's public output. This guide covers the slot model the output uses, the two commit primitives, and how to choose between them.
+
+</Summary>
+
+## How public outputs work
+
+A guest has no console, no file handles, and no return value the host can read directly. The only sanctioned way to expose results is to commit them to the public-output region.
+
+Every committed value becomes part of the proof and is visible to anyone who verifies it. That is what makes proof outputs different from a function return: they are not handed to a caller, they are baked into the proof.
+
+### The slot model
+
+The public output is not a flat byte buffer. It is a fixed array of **32-bit little-endian slots** that lives at a known address in the guest's output data region.
+
+Both commit primitives append into this array and advance an internal cursor.
+
+Three rules govern the encoding:
+
+- **Bytes pack four to a slot, little-endian.** A `u8` written via `io::commit` consumes a full slot, with the value in the low byte and three padding bytes above it.
+- **Each commit call begins a fresh slot.** Two consecutive calls do not share a partial slot. Up to three bytes per call may be wasted as padding.
+- **The verifier reads slot values in commit order.** First committed, first read. The proof system constrains the slot contents, so the guest cannot lie about what it produced.
+
+The diagram below shows three commits laid out in slots:
+
+![Output buffer encoding: guest io::commit calls (① u8=83, ② u16=66, ③ u16=93) each land in their own 32-bit LE slot in the output buffer, padded to slot width](/diagrams/svgs/56-output-buffer-encoding.svg)
+
+The first commit writes a `u8`, the second a `u16`, the third another `u16`. Each one starts a fresh slot regardless of how many bytes it carries.
+
+The layout wastes 8 bytes of padding across the three values. Grouping bytes into a single call is the only way to avoid that overhead.
+
+### The two commit primitives
+
+`ziskos::io` exposes exactly two functions for writing to the output region. They differ in one thing only: whether the bytes are serialized with bincode before being packed into slots.
+
+| Function | Use when | What it does |
+| --- | --- | --- |
+| `commit::<T>(&value)` | The verifier expects a typed value | Serializes `value` with bincode, then packs the resulting bytes into 32-bit LE slots. Last slot is zero-padded if the byte count is not a multiple of four. `T` must implement `serde::Serialize`. |
+| `commit_slice(buf: &[u8])` | The data is already in raw byte form | Packs `buf` directly into 32-bit LE slots, with no bincode framing. Last slot zero-padded the same way. |
+
+Both functions advance the same cursor and obey the same slot rules. The choice is purely about whether bincode framing is part of what the verifier reads.
+
+### Which primitive to use
+
+The decision comes down to two questions: what format does the verifier expect, and what shape is the data already in.
+
+If the verifier deserializes the output as a typed Rust value using the same struct definition, use `io::commit`.
+
+Bincode adds length prefixes for collections and enum tags for variants, which the verifier needs to parse the result back out.
+
+If the verifier reads raw bytes directly, or the data is already a fixed-shape byte array (hash digest, checksum, ABI-encoded payload), use `io::commit_slice` and skip serialization.
+
+The bytes land in the same slots either way; the only difference is whether bincode framing is present.
+
+:::warning Output size matters
+Every committed byte increases proof size and verification cost. Commit only what the verifier strictly needs: a digest instead of raw data, a root instead of a full list, one field instead of a whole struct.
+
+Avoid committing values the verifier can derive on its own, and prefer fixed-size outputs when possible.
+:::
+
+---
+
+## Working through a real example
+
+This section builds a guest program four times. The logic is the same in every version: take a list of `u8` values, sum the even ones, commit both the odds encountered and the sum. What changes is how the output is committed.
+
+Each version exposes a different trade-off, and walking them in order shows how the slot model and the choice of primitive interact.
+
+### Creating the project
+
+Scaffold the project with `cargo-zisk`. The CLI clones the standard ZisK template, wires the workspace, and configures the toolchain in one step:
+
+```zisk-bash title="bash"
+cargo-zisk new sum-evens
+cd sum-evens
+```
+
+The template lays out two crates: `guest/` for the ZisK program, and `common/` for any types shared between the guest and the host. The first version below uses only the guest crate; later versions also touch `common/`.
+
+### Version 1: committing values one by one
+
+The most direct approach is to commit each odd value the moment it is found, then commit the sum at the end. No struct, no shared types; just individual `io::commit` calls.
+
+Open `guest/src/main.rs` and write:
+
+```rust title="guest/src/main.rs"
+use ziskos::io;
+
+fn main() {
+
+    let values: Vec<u8> = vec![1,3,5,7,9,2];
+
+    let mut sum = 0u16;
+    for &n in &values {
+        if n % 2 != 0 {
+            // Commit each odd value as it is found
+            io::commit(&n);
+        } else {
+            sum += n as u16;
+        }
+    }
+
+    // Commit the final sum
+    io::commit(&sum);
+
+}
+```
+
+Each `io::commit(&n)` for a `u8` serializes one byte through bincode and packs it into a fresh 32-bit slot, leaving three bytes of padding. The `u16` sum occupies two bytes in its own slot, leaving two bytes of padding.
+
+| Slot | Bytes           | Contents                           |
+| ---- | --------------- | ---------------------------------- |
+| 0    | `01 00 00 00`   | odds[0]=1, 3 pad bytes             |
+| 1    | `03 00 00 00`   | odds[1]=3, 3 pad bytes             |
+| 2    | `05 00 00 00`   | odds[2]=5, 3 pad bytes             |
+| 3    | `07 00 00 00`   | odds[3]=7, 3 pad bytes             |
+| 4    | `09 00 00 00`   | odds[4]=9, 3 pad bytes             |
+| 5    | `02 00 00 00`   | sum=`0x0002` (2u16), 2 pad bytes   |
+
+Build and run:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk run
+```
+
+The program emits 6 slots, 24 bytes total, but only 7 bytes carry data. Every individual commit pays the full slot cost regardless of value size.
+
+That is the cost of the per-call rule: each commit starts a fresh slot, so small values waste padding aggressively. The next approach packs all the odds into a single commit and removes that overhead.
+
+### Version 2: committing a typed struct
+
+Bundling everything into one commit means the slot rule applies once, not seven times.
+
+Bincode also gives the verifier a typed value it can deserialize directly, and adding a field to the struct later extends the schema without touching call sites.
+
+First, add `serde` to the common crate so the type can be derived:
+
+```toml title="common/Cargo.toml"
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+```
+
+Then add `common` to the guest crate so the guest can import the type:
+
+```toml title="guest/Cargo.toml"
+[dependencies]
+ziskos = { workspace = true }
+common = { path = "../common" }
+```
+
+Open `common/src/lib.rs` and define the shared output type:
+
+```rust title="common/src/lib.rs"
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct OutputDTO {
+    pub odds: Vec<u8>,
+    pub sum:  u16,
+}
+```
+
+Now open `guest/src/main.rs` and write the program. A single `io::commit` call serializes the whole struct with bincode and appends it to the output:
+
+```rust title="guest/src/main.rs"
+use common::OutputDTO;
+use ziskos::io;
+
+fn main() {
+
+    let values: Vec<u8> = vec![1,3,5,7,9,2];
+
+    // Executing program logic
+    let mut sum = 0u16;
+    let mut odds: Vec<u8> = Vec::new();
+    for &n in &values {
+        if n % 2 != 0 {
+            odds.push(n);
+        } else {
+            sum += n as u16;
+        }
+    }
+
+    // Commiting result as proof public values
+    io::commit(&OutputDTO { odds, sum });
+
+}
+```
+
+Build and run as before. Bincode emits a `u64` length prefix for the `Vec`, the raw `u8` elements one after the other with no per-element framing, and the `u16` sum at the end.
+
+Because the elements pack contiguously, fields share slots:
+
+| Slot | Bytes           | Contents                                          |
+| ---- | --------------- | ------------------------------------------------- |
+| 0    | `05 00 00 00`   | vec length low word (`5u64`, bits 0–31)           |
+| 1    | `00 00 00 00`   | vec length high word (`5u64`, bits 32–63)         |
+| 2    | `01 03 05 07`   | odds[0]=1, odds[1]=3, odds[2]=5, odds[3]=7        |
+| 3    | `09 02 00 00`   | odds[4]=9, sum=`0x0002` (2u16), 1 pad byte        |
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk run
+```
+
+One commit, one struct, four slots instead of six. The verifier deserializes the output as an `OutputDTO` and gets typed access to both fields.
+
+The cost paid is the bincode framing. The 8-byte length prefix on the `Vec` is overhead the verifier can already infer from the data. The next version drops bincode and packs the bytes directly.
+
+### Version 3: committing raw bytes
+
+Bincode is convenient but not free. When the layout is fixed and the verifier already knows it, dropping the framing saves slots.
+
+Build a flat `Vec<u8>` during the loop, append the `u16` sum as little-endian bytes, and call `io::commit_slice` once. No struct, no length prefix.
+
+Open `guest/src/main.rs` and replace the implementation:
+
+```rust title="guest/src/main.rs"
+use ziskos::io;
+
+fn main() {
+
+    let values: Vec<u8> = vec![1,3,5,7,9,2];
+
+    let mut sum = 0u16;
+    let mut buf: Vec<u8> = Vec::new();
+    for &n in &values {
+        if n % 2 != 0 {
+            buf.push(n);
+        } else {
+            sum += n as u16;
+        }
+    }
+    buf.extend_from_slice(&sum.to_le_bytes());
+
+    io::commit_slice(&buf);
+
+}
+```
+
+Without bincode framing, the seven payload bytes pack contiguously into two slots:
+
+| Slot | Bytes           | Contents                                         |
+| ---- | --------------- | ------------------------------------------------ |
+| 0    | `01 03 05 07`   | odds[0]=1, odds[1]=3, odds[2]=5, odds[3]=7       |
+| 1    | `09 02 00 00`   | odds[4]=9, sum=`0x0002` (2u16), 1 pad byte       |
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk run
+```
+
+Two slots instead of four. No length prefix, no struct allocation, no bincode serialization cost. The verifier reads the odds as a flat byte sequence and the sum as the last two bytes.
+
+The trade-off is that the schema is implicit. Both sides must agree out of band on where the odds end and the sum begins.
+
+Adding a new field is no longer a one-line struct change; it is a layout change that has to be coordinated with every verifier.
+
+### Version 4: compressing the committed values
+
+If the output only needs to prove that a specific computation produced a specific result, the values themselves do not have to land in the proof.
+
+A digest is enough.
+
+Stop committing the values. Feed each odd `u8` and the `u16` sum into a SHA-256 hasher and commit only the digest. The output becomes a fixed 32 bytes regardless of how many odd values the input contained.
+
+Add `sha2` to the guest crate:
+
+```toml title="guest/Cargo.toml"
+[dependencies]
+ziskos = { workspace = true }
+sha2   = { version = "0.11.0" }
+```
+
+Replace the implementation:
+
+```rust title="guest/src/main.rs"
+use sha2::{Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    // 100 odd values (1,3,…,199) and 100 even values (2,4,…,200)
+    let values: Vec<u8> = (1u8..=200).collect();
+
+    let mut sum = 0u16;
+    let mut hasher = Sha256::new();
+    for &n in &values {
+        if n % 2 != 0 {
+            hasher.update([n]);
+        } else {
+            sum += n as u16;
+        }
+    }
+    hasher.update(sum.to_le_bytes());
+    let digest: [u8; 32] = hasher.finalize().into();
+
+    io::commit_slice(&digest);
+
+}
+```
+
+The 32-byte digest divides evenly into 8 slots with no padding:
+
+| Slots | Bytes    | Contents       |
+| ----- | -------- | -------------- |
+| 0–7   | 32 bytes | SHA-256 digest |
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk run
+```
+
+8 slots, always. A list of 100 odd values produces the same output size as a list of 100 million.
+
+The verifier cannot recover the odds or the sum from the digest alone. That is the point: privacy of the values, attestation of the computation.
+
+If the values are shared alongside the proof, the verifier rehashes them in the same order and confirms the digest matches.
+
+---
+
+### Comparing the four versions
+
+| | `commit` per value | `commit` struct | `commit_slice` | Hash |
+| --- | --- | --- | --- | --- |
+| **When to use** | Few values, simple types | Verifier deserializes typed | Layout is fixed and known | Output size must be fixed |
+| **Slots in example** | 6 | 4 | 2 | 8 |
+| **Serialization** | bincode per call | bincode once | None | None |
+| **Schema** | Implicit | Explicit (shared type) | Implicit (out of band) | Implicit (rehash to verify) |
+| **Output size** | Worst (per-slot padding) | Grows + bincode overhead | Grows, no overhead | Fixed (32 bytes for SHA-256) |
+| **Verifier recovers values** | Yes | Yes | Yes | No (must rehash) |
+
+The ordering is informative: each version trades convenience for compactness, and the right pick depends entirely on what the verifier needs to read.
+
+---
+
+## Other compression patterns
+
+Hashing is the simplest fixed-size commitment, but it is not the only one. When output size is critical and the verifier needs partial reads, more structured options apply.
+
+A **Merkle tree** lets the verifier check individual values against a single 32-byte root using a short inclusion proof, without receiving the full list.
+
+The trade-off is more guest computation up front and a per-query verifier cost when reading back.
+
+More generally, any structure that replaces a variable-length output with a fixed-size commitment (a root, a hash, an aggregate, a polynomial commitment) keeps proof size bounded regardless of input scale.
+
+Picking among them is a matter of what the verifier needs to do with the output: read it whole, look up specific entries, or just confirm that some claim is consistent with it.
+
+---
+
+## Summary
+
+A guest exposes results by committing them to the proof's public-output region. The region is an array of 32-bit little-endian slots, and every committed byte raises proof size and verification cost.
+
+`io::commit` serializes a typed value with bincode and packs the bytes into slots. `io::commit_slice` skips bincode and packs raw bytes directly.
+
+Both obey the same slot rule, and each call starts a fresh slot. Grouping bytes into one call reduces padding waste.
+
+The right primitive depends on what the verifier expects: typed values for `commit`, raw bytes for `commit_slice`, fixed-size digests when the values themselves do not need to land in the proof.
+
+---
+
+## Where this picks up
+
+With inputs and outputs both covered, the I/O model is complete. The next pages turn from correctness to cost.
+
+- **[Profiling your program](./profiling):** measure cycle counts per stage so the expensive parts are visible before proving begins.
+- **[Optimizing via precompiles](./libraries):** swap heavy primitives like SHA-256 for ZisK-native implementations and watch the cycle count drop by orders of magnitude.

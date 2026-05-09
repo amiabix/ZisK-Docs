@@ -1,0 +1,63 @@
+---
+id: verify
+title: Verify
+sidebar_position: 7
+displayed_sidebar: referencesSidebar
+description: Verify a proof file without re-executing the guest.
+---
+
+Verify a proof file. Loads the proof from disk, dispatches to the STARK or PLONK verifier based on the proof kind embedded in the file, and reports the result. Verification time is constant regardless of how complex the original computation was.
+
+```bash
+cargo-zisk verify -p <proof>
+```
+
+`-p / --proof` is required; the command will not infer a default proof path. The proof kind (`VadcopFinal`, `VadcopFinalMinimal`, or `Plonk`) is read from the file header, so a single command verifies any of the three formats.
+
+## Flags
+
+| Flag              | Short | Required | Description                                                                                  |
+|-------------------|-------|----------|----------------------------------------------------------------------------------------------|
+| `--proof <path>`  | `-p`  | yes      | Path to the proof file to verify.                                                            |
+| `--verbose`       | `-v`  | no       | Increase logging verbosity. Repeatable: `-v`, `-vv`.                                          |
+
+The CLI does not accept a `--proving-key` flag; the verifier reads everything it needs from the proof file's embedded program verification key.
+
+## Examples
+
+Verify a STARK proof produced by `cargo-zisk prove`:
+
+```bash
+cargo-zisk verify -p vadcop_final_proof.bin
+```
+
+Verify a PLONK proof produced by `cargo-zisk wrap-proof --plonk`:
+
+```bash
+cargo-zisk verify -p vadcop_final_proof_plonk.bin
+```
+
+Verify with extra logging:
+
+```bash
+cargo-zisk verify -p vadcop_final_proof.bin -vv
+```
+
+## Outputs
+
+Prints the verification result and a summary block to stdout. Example for a successful STARK verification:
+
+```
+✓ STARK proof was verified
+--- VERIFICATION SUMMARY ---
+      time: 132 milliseconds
+----------------------------
+```
+
+For a failing proof:
+
+```
+✗ STARK proof was not verified
+```
+
+Exits with a non-zero status code if the proof is invalid.

@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1480 540" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.panel-title { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.panel-bg { fill: #FFFFFF; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+
+.row-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+.frame-index { font-family: 'IBM Plex Sans', sans-serif; font-size: 16px; font-weight: 700; fill: #15161D; }
+
+.byte-cell rect { stroke: #D9DCE3; stroke-width: 1; }
+.byte-cell text { font-family: 'IBM Plex Mono', monospace; font-size: 12px; fill: #15161D; font-weight: 600; }
+.byte-cell-dim text { fill: #B9B9C5; }
+
+.cell-f1 { fill: rgba(0,119,85,0.12); }
+.cell-f1-strong { fill: rgba(0,119,85,0.32); }
+.cell-f2 { fill: rgba(199,163,0,0.12); }
+.cell-f2-strong { fill: rgba(199,163,0,0.32); }
+.cell-f3 { fill: rgba(196,122,24,0.12); }
+.cell-f3-strong { fill: rgba(196,122,24,0.32); }
+
+.host-call { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; fill: #15161D; }
+.host-call-bg rect { stroke-width: 1.5; fill: #FFFFFF; }
+.host-call-bg.f1 rect { stroke: #007755; }
+.host-call-bg.f2 rect { stroke: #C7A300; }
+.host-call-bg.f3 rect { stroke: #C47A18; }
+
+.dot.f1 { fill: #007755; }
+.dot.f2 { fill: #C7A300; }
+.dot.f3 { fill: #C47A18; }
+
+.connector { fill: none; stroke-width: 1.4; }
+.connector.f1 { stroke: #007755; }
+.connector.f2 { stroke: #C7A300; }
+.connector.f3 { stroke: #C47A18; }
+    ]]></style>
+    <marker id="arr-rf1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#007755"/></marker>
+    <marker id="arr-rf2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#C7A300"/></marker>
+    <marker id="arr-rf3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#C47A18"/></marker>
+  </defs>
+
+  <!-- Input Buffer panel (LEFT) -->
+  <text class="panel-title" x="40" y="60">Input Buffer</text>
+  <rect class="panel-bg" x="40" y="80" width="720" height="440" rx="12"/>
+
+  <!-- Frame 1 · len row -->
+  <text class="frame-index" x="65" y="116">①</text>
+  <text class="row-label" x="95" y="116">len (u64)</text>
+  <g transform="translate(220,90)">
+    <g class="byte-cell"><rect class="cell-f1-strong" x="0" y="0" width="62" height="40"/><text x="31" y="26" text-anchor="middle">01</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="62" y="0" width="62" height="40"/><text x="93" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="124" y="0" width="62" height="40"/><text x="155" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="186" y="0" width="62" height="40"/><text x="217" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="248" y="0" width="62" height="40"/><text x="279" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="310" y="0" width="62" height="40"/><text x="341" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="372" y="0" width="62" height="40"/><text x="403" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="434" y="0" width="62" height="40"/><text x="465" y="26" text-anchor="middle">00</text></g>
+  </g>
+
+  <!-- Frame 1 · value + padding row -->
+  <text class="row-label" x="95" y="156">value + padding</text>
+  <g transform="translate(220,140)">
+    <g class="byte-cell"><rect class="cell-f1-strong" x="0" y="0" width="62" height="40"/><text x="31" y="26" text-anchor="middle">53</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="62" y="0" width="62" height="40"/><text x="93" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="124" y="0" width="62" height="40"/><text x="155" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="186" y="0" width="62" height="40"/><text x="217" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="248" y="0" width="62" height="40"/><text x="279" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="310" y="0" width="62" height="40"/><text x="341" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="372" y="0" width="62" height="40"/><text x="403" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f1" x="434" y="0" width="62" height="40"/><text x="465" y="26" text-anchor="middle">00</text></g>
+  </g>
+
+  <!-- Frame 2 · len row -->
+  <text class="frame-index" x="65" y="226">②</text>
+  <text class="row-label" x="95" y="226">len (u64)</text>
+  <g transform="translate(220,200)">
+    <g class="byte-cell"><rect class="cell-f2-strong" x="0" y="0" width="62" height="40"/><text x="31" y="26" text-anchor="middle">02</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="62" y="0" width="62" height="40"/><text x="93" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="124" y="0" width="62" height="40"/><text x="155" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="186" y="0" width="62" height="40"/><text x="217" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="248" y="0" width="62" height="40"/><text x="279" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="310" y="0" width="62" height="40"/><text x="341" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="372" y="0" width="62" height="40"/><text x="403" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="434" y="0" width="62" height="40"/><text x="465" y="26" text-anchor="middle">00</text></g>
+  </g>
+
+  <!-- Frame 2 · value + padding row -->
+  <text class="row-label" x="95" y="266">value + padding</text>
+  <g transform="translate(220,250)">
+    <g class="byte-cell"><rect class="cell-f2-strong" x="0" y="0" width="62" height="40"/><text x="31" y="26" text-anchor="middle">42</text></g>
+    <g class="byte-cell"><rect class="cell-f2-strong" x="62" y="0" width="62" height="40"/><text x="93" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="124" y="0" width="62" height="40"/><text x="155" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="186" y="0" width="62" height="40"/><text x="217" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="248" y="0" width="62" height="40"/><text x="279" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="310" y="0" width="62" height="40"/><text x="341" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="372" y="0" width="62" height="40"/><text x="403" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f2" x="434" y="0" width="62" height="40"/><text x="465" y="26" text-anchor="middle">00</text></g>
+  </g>
+
+  <!-- Frame 3 · len row -->
+  <text class="frame-index" x="65" y="336">③</text>
+  <text class="row-label" x="95" y="336">len (u64)</text>
+  <g transform="translate(220,310)">
+    <g class="byte-cell"><rect class="cell-f3-strong" x="0" y="0" width="62" height="40"/><text x="31" y="26" text-anchor="middle">01</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="62" y="0" width="62" height="40"/><text x="93" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="124" y="0" width="62" height="40"/><text x="155" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="186" y="0" width="62" height="40"/><text x="217" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="248" y="0" width="62" height="40"/><text x="279" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="310" y="0" width="62" height="40"/><text x="341" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="372" y="0" width="62" height="40"/><text x="403" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="434" y="0" width="62" height="40"/><text x="465" y="26" text-anchor="middle">00</text></g>
+  </g>
+
+  <!-- Frame 3 · value + padding row -->
+  <text class="row-label" x="95" y="376">value + padding</text>
+  <g transform="translate(220,360)">
+    <g class="byte-cell"><rect class="cell-f3-strong" x="0" y="0" width="62" height="40"/><text x="31" y="26" text-anchor="middle">5D</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="62" y="0" width="62" height="40"/><text x="93" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="124" y="0" width="62" height="40"/><text x="155" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="186" y="0" width="62" height="40"/><text x="217" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="248" y="0" width="62" height="40"/><text x="279" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="310" y="0" width="62" height="40"/><text x="341" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="372" y="0" width="62" height="40"/><text x="403" y="26" text-anchor="middle">00</text></g>
+    <g class="byte-cell byte-cell-dim"><rect class="cell-f3" x="434" y="0" width="62" height="40"/><text x="465" y="26" text-anchor="middle">00</text></g>
+  </g>
+
+  <!-- Bottom legend -->
+  <text class="row-label" x="220" y="450">strong fill = significant byte · dim fill = padding</text>
+  <text class="row-label" x="220" y="470">each frame = 8-byte length + 8-byte value+padding (16 bytes total)</text>
+
+  <!-- Connectors buffer → guest -->
+  <path class="connector f1" d="M 760 130 C 850 130, 890 150, 970 150" marker-end="url(#arr-rf1)"/>
+  <path class="connector f2" d="M 760 240 C 850 240, 890 260, 970 260" marker-end="url(#arr-rf2)"/>
+  <path class="connector f3" d="M 760 350 C 850 350, 890 370, 970 370" marker-end="url(#arr-rf3)"/>
+
+  <!-- Guest Program panel (RIGHT) -->
+  <text class="panel-title" x="970" y="60">Guest Program</text>
+  <rect class="panel-bg" x="970" y="80" width="470" height="380" rx="12"/>
+
+  <g class="host-call-bg f1" transform="translate(1000,120)">
+    <rect width="410" height="60" rx="8"/>
+    <circle class="dot f1" cx="36" cy="30" r="14"/>
+    <text class="frame-index" x="36" y="36" text-anchor="middle" fill="#FFFFFF">①</text>
+    <text class="host-call" x="80" y="36">io::read::&lt;u8&gt;()  →  83</text>
+  </g>
+
+  <g class="host-call-bg f2" transform="translate(1000,230)">
+    <rect width="410" height="60" rx="8"/>
+    <circle class="dot f2" cx="36" cy="30" r="14"/>
+    <text class="frame-index" x="36" y="36" text-anchor="middle" fill="#FFFFFF">②</text>
+    <text class="host-call" x="80" y="36">io::read::&lt;u16&gt;()  →  66</text>
+  </g>
+
+  <g class="host-call-bg f3" transform="translate(1000,340)">
+    <rect width="410" height="60" rx="8"/>
+    <circle class="dot f3" cx="36" cy="30" r="14"/>
+    <text class="frame-index" x="36" y="36" text-anchor="middle" fill="#FFFFFF">③</text>
+    <text class="host-call" x="80" y="36">io::read::&lt;u8&gt;()  →  93</text>
+  </g>
+</svg>

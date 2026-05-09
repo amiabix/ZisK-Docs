@@ -1,0 +1,561 @@
+---
+id: stream
+title: ZiskStream
+sidebar_position: 3
+displayed_sidebar: referencesSidebar
+description: Live-transport input stream for ZisK guest program execution.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Live-transport input carrier supporting write-after-prove-start. Streams are reusable across jobs and ship over Unix sockets, QUIC, or gRPC; suited to deployments where input arrives incrementally.
+
+</Summary>
+
+## What ZiskStream is
+
+`ZiskStream` is the streaming counterpart to [`ZiskStdin`](./stdin). The guest sees the same surface (sequential `io::read::<T>()` and `io::read_input_slice()` calls), but the bytes arrive over a live transport instead of from a buffer the host fully prepared in advance.
+
+The producer can keep writing while the prove job is already running. Each batch of writes is held locally until `flush()` ships it down the transport; the prover consumes frames as they arrive.
+
+A single `ZiskStream` is reusable across jobs. The SDK calls the internal lifecycle hooks automatically when the `JobHandle` is awaited, so most callers only ever touch `write` / `write_slice` and the constructor.
+
+```rust
+use zisk_sdk::ZiskStream;
+
+let stream = ZiskStream::unix();
+stream.write(&42u64);
+stream.write_slice(b"raw payload");
+
+// Pass to client.prove(...) or client.execute(...)
+```
+
+Both `ZiskStdin` and `ZiskStream` implement `Into<InputSource>`, so they are interchangeable in `client.prove(&program, ...)` and `client.execute(&program, ...)`. `ZiskStream` also implements `Into<HintsSource>`, so the same type doubles as a streaming hints carrier when paired with [`ZiskHints`](./hints).
+
+## Internal layout
+
+`ZiskStream` is a thin newtype around an internal writer:
+
+```rust
+#[derive(Clone)]
+pub struct ZiskStream {
+    writer: ZiskStreamWriter,
+}
+```
+
+The writer holds the transport configuration, a pending-bytes buffer, and the live-state flag. Every public method on `ZiskStream` forwards to the writer.
+
+Two consequences:
+
+- **Clones share state.** `ZiskStream: Clone` is a cheap clone of the inner writer's `Arc`. Writes from one clone are visible to every other clone, and `flush()` from any clone ships everyone's pending bytes. Concurrent writes from clones are safe (the writer serialises internally).
+- **Reusable across jobs.** The writer keeps its identity across the `start` → `finish` cycle. Awaiting a `JobHandle` calls `finish()` internally; the next prove call calls `start()` again, reopens the transport, and reuses the same instance.
+
+## End-to-end flow
+
+A streamed run has the same three-side agreement as `ZiskStdin` (host writes, framing on the wire, guest reads), but the timing is different:
+
+1. **Open.** Construct a `ZiskStream` with one of the transport constructors below. The transport is configured but no connection is opened yet.
+2. **Buffer.** Call `write` / `write_slice` for each piece of input the guest expects. Frames accumulate locally.
+3. **Submit.** Pass the stream to `client.prove(...)` or `client.execute(...)` and call `.run()`. The SDK queues the job and (for socket transports) opens the listening side immediately so the executor can connect as soon as it launches.
+4. **Drain on connect.** When the prover connects, the SDK drains every frame buffered up to that point in one shot. Further writes are held until the next `flush()`.
+5. **Read.** Inside the zkVM, the guest calls `io::read::<T>()` / `io::read_input_slice()` exactly as it would for `ZiskStdin`. Each read blocks until the next frame is available.
+6. **Close.** When the `JobHandle` resolves, the SDK calls `finish()` to tear down the transport. The next prove call reopens it.
+
+## When to use ZiskStream
+
+Reach for `ZiskStream` when one of the following is true:
+
+- Input is too large to materialise in memory before proving.
+- Input is produced incrementally (e.g., transactions arriving from a mempool, blocks fetched on demand) and you want the prover working before the last byte is known.
+- The prover and the input producer live on different machines and a Unix socket, QUIC, or gRPC channel is the natural transport.
+
+Use [`ZiskStdin`](./stdin) instead when the entire input fits in memory and is known up front. The buffer-based path has fewer moving parts and no transport setup.
+
+## Lifecycle
+
+Each job moves a stream through three phases:
+
+1. **Buffering.** `write` and `write_slice` calls accumulate frames locally. Nothing crosses the transport.
+2. **Live.** The SDK calls `start()` when the job is submitted. For Unix and QUIC, `start()` binds and listens synchronously, then spawns a thread that blocks on the peer connection, drains every buffered frame, and marks the stream live. For gRPC, `start()` waits for the previous push RPC (if any) to finish; the new RPC sender arrives via the SDK after job submission. Once live, `flush()` ships the bytes buffered since the last flush.
+3. **Closed.** `finish()` tears the transport down. `flush()` after `finish()` blocks until the next `start()` reopens the transport, which prevents accidental writes to a completed job. The SDK calls `finish()` automatically when the `JobHandle` resolves; manual calls are only needed on error paths that abandon the handle without awaiting.
+
+Streams are reusable: the next `start()` opens a fresh transport and the same `ZiskStream` ships the next job's bytes.
+
+## Transports
+
+Five constructors create streams for different deployments. The choice is mostly about where the executor lives and who owns the socket.
+
+| Constructor | URI shape | When to use |
+|---|---|---|
+| `unix()` | `unix:///tmp/zisk-input-{uuid}.sock` | Local development; auto-assigned socket. |
+| `unix_at(path)` | `unix://{path}` | Local coordinator; explicit socket path. |
+| `unix_external(path)` | `unix://{path}` | External process owns the socket; SDK only connects. |
+| `quic(uri)` | `quic://host:port` | Cross-machine direct P2P. |
+| `grpc()` | `grpc://push` | Cluster; coordinator-driven via `PushJobInput` RPC. |
+
+Unix-family constructors (`unix`, `unix_at`, `unix_external`) are gated on `cfg(unix)` and are not available on Windows. QUIC and gRPC are cross-platform.
+
+## Frame format
+
+Each frame written by `write` or `write_slice` carries an 8-byte little-endian length header followed by the payload, padded to the next 8-byte boundary. `write_bytes` skips the header and ships raw bytes directly.
+
+| Method | Header | Padding | Use case |
+|---|---|---|---|
+| `write` / `write_slice` | 8-byte LE length | 0–7 zero bytes | Guest reads via `io::read::<T>()` or `io::read_input_slice()`. |
+| `write_bytes` | None | None | Unframed; use only with a lower-level receiving protocol that already knows the size. Standard guest `io::read` and `io::read_input_slice` calls expect framed records. |
+
+The frame layout is the same one `ZiskStdin` uses; the only difference is that `ZiskStream` ships frames over a live transport rather than handing the prover a pre-filled buffer.
+
+---
+
+## ZiskStream::unix
+
+Bind a Unix domain socket at an OS-assigned path under `/tmp`.
+
+```rust
+#[cfg(unix)]
+pub fn unix() -> Self
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Self` | A stream bound to `/tmp/zisk-input-{uuid}.sock`, where `{uuid}` is a v4 UUID generated at construction. |
+
+The auto-assigned UUID guarantees that two concurrent streams on the same host do not collide on the socket path. The socket is bound and listening as soon as `start()` runs, so the executor can connect immediately.
+
+This is the right default for local development, single-host CI, and quick tests where the socket location does not matter. Reach for `unix_at` when you need a known path (for systemd units, container mounts, multi-process orchestration); reach for `unix_external` when another process already owns the socket.
+
+`unix()` panics if socket creation fails (path collision, `/tmp` not writable). The constructor uses `.expect(...)` internally; failures are unrecoverable at this layer. Production code on hosts where `/tmp` may not be writable should use `unix_at` with an explicit path under a known-good directory.
+
+The constructor is gated on `cfg(unix)` and is not available on Windows.
+
+#### Example
+
+```rust
+let stream = ZiskStream::unix();
+println!("{}", stream.uri());
+// e.g. "unix:///tmp/zisk-input-7f3c1ab2-5c40-4d8e-9a1b-12d4ec3a8f56.sock"
+```
+
+---
+
+## ZiskStream::unix_at
+
+Bind a Unix domain socket at an explicit path.
+
+```rust
+#[cfg(unix)]
+pub fn unix_at(path: &str) -> Result<Self>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | `&str` | Filesystem path for the socket. The parent directory must exist; the socket file itself must not pre-exist. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<Self>` | A stream bound to the path, or an error if the path is invalid, the directory is missing, or the socket cannot be created. |
+
+The socket starts listening immediately, so the executor can connect as soon as it launches. The bind happens at construction time, not on first flush; if another process is going to connect to this socket, the path is reachable the moment `unix_at` returns.
+
+Use this for production deployments and any setup where the path needs to be known up front:
+
+- **Systemd units** that pin the socket under `/run/zisk/`.
+- **Container deployments** where the socket lives on a mounted volume shared between containers.
+- **Multi-tenant hosts** where a known prefix per tenant prevents collisions.
+- **Sandboxed environments** that only allow socket creation under a specific allowlisted path.
+
+The socket file is left on disk after `finish()`. Either remove it before the next `unix_at` call (the constructor errors on EEXIST) or arrange for systemd / your orchestration layer to clean it up.
+
+`unix_at` is gated on `cfg(unix)` and is not available on Windows.
+
+#### Example
+
+```rust
+let stream = ZiskStream::unix_at("/run/zisk/input.sock")?;
+println!("{}", stream.uri()); // "unix:///run/zisk/input.sock"
+```
+
+---
+
+## ZiskStream::unix_external
+
+Reference a Unix socket that another process owns. The SDK does not bind, listen, connect, or read or write the socket; the `ZiskStream` only carries the URI so the executor knows where to read input from.
+
+```rust
+#[cfg(unix)]
+pub fn unix_external(path: &str) -> Self
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | `&str` | Filesystem path of the externally-managed socket. The SDK does not validate it. |
+
+`unix_external` is the metadata-only variant. It records the URI and exits. Internally the writer is constructed in the "ready" state and `flush()` is a no-op for the entire lifetime of the stream; bytes appended via `write` / `write_slice` are never shipped by the SDK. The actual data flow is between whatever process owns the socket and the executor that connects to it.
+
+The canonical use case is the hints stream:
+
+- The guest (or a host-side hints producer) calls something like `init_hints_socket` to bind a Unix socket and stream hint frames into it.
+- The host SDK code constructs `ZiskStream::unix_external(socket_path)` and passes it to `.hints(stream)` on a prove call.
+- The executor receives the URI, connects to the socket itself, and reads the hint frames as they arrive.
+
+The SDK is a courier for the URI in this flow, not a participant in the byte transfer. Do not call `write` / `write_slice` on a `unix_external` stream and expect the bytes to land anywhere; they sit in the local pending buffer and are dropped when the stream is dropped.
+
+For the regular case where the SDK is the producer of the bytes, use `unix()` (auto path) or `unix_at()` (explicit path) instead. Those open the socket on the SDK side and let the executor connect.
+
+`unix_external` is gated on `cfg(unix)` and is not available on Windows.
+
+#### Example
+
+```rust
+// Another process is binding /run/zisk/hints.sock and writing into it.
+let hints = ZiskStream::unix_external("/run/zisk/hints.sock");
+
+// Pass the stream to the prove call so the executor knows where to read.
+client.prove(&program, stdin).hints(hints).run()?.await?;
+```
+
+---
+
+## ZiskStream::quic
+
+Open a QUIC transport.
+
+```rust
+pub fn quic(uri: &str) -> Result<Self>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `uri` | `&str` | URI in the form `quic://host:port`. Pass `:0` to let the OS pick a free port. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<Self>` | A stream, or an error if the URI is malformed, the scheme is wrong, or the address cannot be resolved. |
+
+The constructor parses the URI eagerly. The `quic://` prefix is required; passing `http://...` or any other scheme returns an error before construction completes. The address is parsed as a `SocketAddr`, so DNS names are not accepted; resolve them on the caller side first.
+
+QUIC is the right transport for cross-machine direct connections where the input producer and the prover are on different hosts and a UDP-based protocol fits the network better than a coordinator-mediated gRPC channel. UDP-based, multiplexed, and tolerant of intermittent packet loss.
+
+The `:0` port-picker idiom (`quic://127.0.0.1:0`) lets the OS choose a free UDP port; the resolved address is then used as the URI so the coordinator and the executor receive the correct port. This is the right default for tests and ephemeral setups; production hosts usually pin a known port.
+
+#### Example
+
+```rust
+// Pinned port
+let stream = ZiskStream::quic("quic://example.com:9000")?;
+
+// OS-assigned port (test / ephemeral)
+let stream = ZiskStream::quic("quic://127.0.0.1:0")?;
+println!("{}", stream.uri());
+// e.g. "quic://127.0.0.1:54781"
+```
+
+---
+
+## ZiskStream::grpc
+
+Push transport that delivers via the coordinator's `PushJobInput` RPC.
+
+```rust
+pub fn grpc() -> Self
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Self` | A stream that buffers locally and pushes frames over gRPC after job submission. |
+
+No transport is opened at construction. The URI is the constant string `grpc://push`, which signals to the rest of the SDK that this stream uses the coordinator-managed push channel rather than a direct socket.
+
+The flow:
+
+1. Construction is free; no RPC is opened.
+2. Pre-submit `write` / `write_slice` calls accumulate frames in the local buffer.
+3. After `client.prove(...).run()` queues the job, the coordinator opens a `PushJobInput` RPC. The SDK injects the RPC sender into the stream automatically.
+4. From that point on, `flush()` pushes frames over the RPC. The buffered pre-submit frames are drained on the first flush.
+
+This is the right transport for cluster deployments where every input goes through the coordinator. It avoids per-job socket setup, fits the existing coordinator-based RPC plumbing, and works the same on Linux, macOS, and Windows.
+
+#### Example
+
+```rust
+let stream = ZiskStream::grpc();
+stream.write(&42u64);
+// frames are buffered; the RPC opens after .run()
+```
+
+---
+
+## ZiskStream::write
+
+Serialise a value with bincode and buffer it as a length-prefixed frame.
+
+```rust
+pub fn write<T: Serialize>(&self, data: &T)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `&T` | Reference to the value to serialise. `T` must implement `serde::Serialize`. |
+
+`write<T>` is the same operation as `ZiskStdin::write<T>`: bincode-serialise the value, then push the result through `write_slice` (8-byte length header + payload + alignment padding). The frame is delivered on the next `flush()`; if the stream is already live and the SDK's drain happens before flush, the frame still goes through the next flush cycle.
+
+Order matters. The *N*th `write` on the host corresponds to the *N*th `io::read` on the guest. A type or order mismatch surfaces as a deserialisation panic on the guest, not as a host-side error.
+
+`write` panics if bincode serialisation fails. With ordinary `Serialize` types (numbers, strings, structs, vectors of those) serialisation is infallible; the panic path is reachable only with custom `Serialize` implementations that explicitly fail.
+
+Concurrent `write` calls from cloned `ZiskStream` handles are safe. The internal writer serialises pushes; each frame is contiguous on the wire, even when multiple producers are calling `write` at the same time.
+
+#### Example
+
+```rust
+let stream = ZiskStream::unix();
+stream.write(&42u64);
+stream.write(&MyStruct { x: 1, y: 2 });
+
+// Batch the two frames over the wire.
+client.prove(&program, stream).run()?.await?;
+```
+
+---
+
+## ZiskStream::write_slice
+
+Buffer raw bytes as a single length-prefixed frame.
+
+```rust
+pub fn write_slice(&self, data: &[u8])
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `&[u8]` | Raw bytes to wrap as one frame's payload. |
+
+The bytes are wrapped in an 8-byte little-endian length header and zero-padded to the next 8-byte boundary. Empty slice produces an 8-byte frame (header only); 1 byte produces a 16-byte frame; 8 bytes produces a 16-byte frame; 9 bytes produces a 24-byte frame. The guest reads the frame via `io::read_input_slice()` and receives the original payload bytes (header and padding stripped).
+
+Use `write_slice` when the payload is already in its final binary shape: digests, compact encodings, an externally-formatted blob, or a serde-encoded buffer you produced earlier and want to inject without re-serialising. It skips bincode entirely.
+
+Mixing `write` and `write_slice` in the same stream is fine, as long as the guest reads each frame with the matching call (`io::read::<T>()` for `write`-produced frames, `io::read_input_slice()` for `write_slice`-produced frames).
+
+#### Example
+
+```rust
+let stream = ZiskStream::unix();
+stream.write(&42u64);                       // bincode-encoded
+stream.write_slice(&[0x01, 0x02, 0x03]);   // raw bytes
+```
+
+---
+
+## ZiskStream::write_bytes
+
+Buffer raw bytes with no framing.
+
+```rust
+pub fn write_bytes(&self, data: &[u8])
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `&[u8]` | Raw bytes to ship through the transport with no length header and no padding. |
+
+`write_bytes` is the escape hatch for protocols where you control the receiving side and the standard frame format gets in the way. The bytes are pushed straight through to the writer; nothing is added.
+
+Pairing `write_bytes` with the standard guest readers (`io::read::<T>()`, `io::read_input_slice()`) misaligns every subsequent frame. Those readers expect the 8-byte length header and the alignment padding; bytes that arrive without them are interpreted as the next frame's header, which then claims a wildly wrong payload length, and the rest of the stream is ruined.
+
+Two legitimate uses:
+
+- The guest reads the count separately first (via a `write` / `write_slice` frame) and then consumes a known-size raw block via a custom `io::read_*` helper that skips the frame layout.
+- A lower-level protocol (a non-standard executor, a debug tool reading from the socket directly) is on the receiving end.
+
+For everything else, use `write_slice`.
+
+#### Example
+
+```rust
+// Custom protocol: write a count frame, then raw bytes the guest knows the size of.
+stream.write(&8u32);
+stream.write_bytes(b"01234567"); // 8 raw bytes, no header
+```
+
+---
+
+## ZiskStream::flush
+
+Send all buffered frames to the transport.
+
+```rust
+pub fn flush(&self) -> Result<()>
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<()>` | `Ok(())` once every buffered byte has been sent; `Err` if the transport fails mid-flush. |
+
+`flush` blocks until two conditions hold: the transport is live, and every buffered byte has been sent.
+
+For Unix and QUIC transports, "live" means the peer has accepted the connection. `flush` blocks if it is called before the executor connects; it returns once the connection is established and the buffered bytes are drained.
+
+For gRPC, "live" means the coordinator has opened the `PushJobInput` RPC and the SDK has injected the sender. `flush` blocks until the sender is ready, then pushes.
+
+For `unix_external`, `flush` is a no-op. It returns `Ok(())` immediately without sending anything; the SDK does not own the transport. Bytes appended via `write` / `write_slice` accumulate in the local pending buffer and are dropped when the stream is dropped. See the [`unix_external`](#ziskstreamunix_external) section for the metadata-only flow.
+
+Empty-buffer flushes are no-ops once the stream is live. Multiple flushes on the same job are fine: each ships the frames buffered since the last flush.
+
+If you call `flush` before `start()` has run (for example, in your own producer task before the SDK has queued the job), the call blocks waiting for the transport to come up. Either rely on the SDK's automatic post-start drain, or sequence your producer task after `client.prove(...).run()` queues the job.
+
+`flush` is callable from cloned `ZiskStream` handles; the writer serialises concurrent flushes.
+
+#### Example
+
+```rust
+let stream = ZiskStream::unix();
+stream.write_slice(b"first batch");
+
+let handle = client.prove(&program, stream.clone()).run()?;
+
+// Producer task: keep streaming as data arrives.
+for chunk in incoming() {
+    stream.write_slice(&chunk);
+    stream.flush()?;
+}
+
+let proof = handle.await?;
+```
+
+---
+
+## ZiskStream::finish
+
+Close the transport.
+
+```rust
+pub fn finish(&self) -> Result<()>
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<()>` | `Ok(())` after the transport is closed; idempotent on already-closed streams. |
+
+Tears the transport down and marks the stream not-live. After `finish`:
+
+- Subsequent `flush()` calls block until the next `start()` reopens the transport (which the SDK does on the next prove call).
+- Subsequent `write` / `write_slice` calls still buffer normally; they just do not ship until the next `start()` and `flush()` cycle.
+- `finish()` itself is idempotent. Safe to call multiple times. `finish()` on a stream that never went live is also `Ok(())`.
+
+The SDK calls `finish` automatically when the `JobHandle` resolves, so most callers never invoke it directly. Manual calls are needed only on error paths that abandon the handle without awaiting it (you dropped the handle, you crashed mid-run, you cancelled the job out of band).
+
+The reusable-stream property hinges on `finish` being idempotent and `start` being able to reopen the transport. The same `ZiskStream` ships job 1, finishes, then ships job 2 with no reconstruction.
+
+#### Example
+
+```rust
+// Manual finish on an error path
+let stream = ZiskStream::unix();
+let handle = match client.prove(&program, stream.clone()).run() {
+    Ok(h) => h,
+    Err(e) => {
+        stream.finish()?;
+        return Err(e.into());
+    }
+};
+```
+
+---
+
+## ZiskStream::reset
+
+Discard buffered (unsent) bytes.
+
+```rust
+pub fn reset(&self)
+```
+
+#### Returns
+
+Nothing. Drops the writer's pending buffer; bytes already shipped via `flush()` are unaffected.
+
+`reset` is for abandoning a partially-built batch before it goes on the wire. Two practical cases:
+
+- **Producer error.** A producer task wrote two frames, hit an error before the third, and wants to retry from scratch. `reset` drops the half-built batch; the next `write` starts fresh.
+- **Cancelled batch.** A speculative write you decided not to send (input validation failed late, downstream consumer changed its mind). `reset` keeps the failed bytes off the transport.
+
+`reset` only affects pending bytes. Bytes already sent via `flush()` cannot be un-sent; the prover may have already consumed them. If the run is past the first flush, drop the `JobHandle` (or call `JobHandle::cancel()` on remote jobs) instead of relying on `reset`.
+
+#### Example
+
+```rust
+stream.write(&1u32);
+stream.write(&2u32);
+// decided not to send these
+stream.reset();
+
+stream.write(&100u32);
+stream.flush()?; // sends only the 100u32 frame
+```
+
+---
+
+## ZiskStream::uri
+
+Return the address string the executor uses to connect to this stream's transport.
+
+```rust
+pub fn uri(&self) -> &str
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `&str` | The transport URI, fixed at construction. |
+
+The URI is the connection string for the live channel between the input producer (the host) and the consumer (the executor or coordinator). The scheme dispatches the transport implementation; the rest tells the SDK where to bind, listen, or connect. See the [Transports](#transports) table for each constructor's URI shape.
+
+Two cases call for `uri()` at runtime: logging which path or port a job is using, and `unix_external` setups where the external producer needs to know the path to bind to. For QUIC streams constructed with `:0`, the returned URI reflects the OS-resolved port, not the literal `:0` you passed in.
+
+#### Example
+
+```rust
+let stream = ZiskStream::quic("quic://127.0.0.1:0")?;
+println!("executor connects to {}", stream.uri());
+// e.g. "executor connects to quic://127.0.0.1:54781"
+```
+
+:::note
+`ZiskStream` implements `Clone`. Cloning is cheap (the inner writer is reference-counted) and clones share the same buffer and transport. Use clones for multi-producer setups; concurrent `write` and `flush` calls from clones are safe.
+:::
+
+## Where this picks up
+
+Related references for the input side of a prove call:
+
+- [`ZiskStdin`](./stdin): fully-buffered counterpart for fully-known input.
+- [`ZiskHints`](./hints): out-of-band acceleration; `ZiskStream` doubles as a streaming hints carrier.
+- [`ProverClient`](./prover-client): `client.prove(&program, stream)` and `client.execute(&program, stream)`.

@@ -1,0 +1,225 @@
+---
+id: pipeline
+sidebar_position: 7
+title: The proving pipeline
+description: The six developer-facing stages, from compiling a Rust
+  guest to verifying a proof.
+---
+
+# The proving pipeline
+
+A proving run goes through six developer-visible stages. Each
+addresses a distinct concern; the CLI and SDK both expose them
+explicitly so you can drive them independently or fold them into a
+single one-shot call.
+
+![Diagram: Rust source · RISC-V ELF · proving key · trace · STARK proof](/diagrams/svgs/38-deep-pipeline-1.svg)
+
+## 1. Compile
+
+The Rust guest is compiled to a RISC-V ELF binary that runs inside
+the zkVM. The compiled artifact lands at
+`target/elf/riscv64ima-zisk-zkvm-elf/release/<crate>` and is the exact
+program the prover will execute.
+
+| How | Command / call |
+|-----|----------------|
+| CLI | `cargo-zisk build --release` |
+
+At load time, the **ZisK transpiler** walks every RISC-V instruction
+in the ELF and emits the matching ZisK instruction(s). Most RV64IM
+instructions map one-to-one; precompile calls (which the guest
+makes through ordinary Rust function calls) are expressed through
+ZisK's syscall/CSR convention and mapped to the right ZisK
+precompile opcode.
+
+## 2. Setup
+
+The setup step derives a *proving key* (and a matching verification
+key) from the ELF. The program ROM is hashed into a commitment, the
+fixed columns of the AIRs are computed, and the
+frequent-operation caches are populated.
+
+Setup is expensive but **one-time per binary**: the same key can be
+reused across every subsequent proving run with different inputs.
+
+| How | Command / call |
+|-----|----------------|
+| CLI | `cargo-zisk program-setup` |
+| SDK | `client.setup(&PROGRAM).run()?.await?` |
+
+If the program uses precompiles and you intend to prove with hints,
+pass `.with_hints()` at setup time so the proving artifacts are
+hint-compatible. Setup output produced without `.with_hints()`
+cannot be used with a hinted prove call later, and vice versa.
+
+## 3. Execute
+
+Execution runs the guest **without** producing a proof. It is a fast
+sanity check: the same logic runs, the same outputs are committed,
+but no arithmetic constraints are generated. Use it to:
+
+- Validate that the guest produces the expected outputs on a given
+  input.
+- Catch logic errors quickly without paying the cost of proving.
+- Measure instruction counts and identify hot regions before
+  optimising.
+
+| How | Command / call |
+|-----|----------------|
+| CLI | `cargo-zisk execute -i <input-file>` |
+| SDK | `client.execute(&PROGRAM, stdin).run()?.await?` |
+
+For CLI runs, `<input-file>` is a `ZiskStdin`-formatted file. SDK
+hosts usually construct the same format in memory with `ZiskStdin`.
+
+Two emulator backends are available: Assembly (fast, RAM-hungry) and
+Rust (`ziskemu`, slower but lighter on memory). On Linux, `cargo-zisk`
+picks the Assembly emulator by default; the `-l` flag switches to the
+Rust emulator on hosts that don't have the RAM headroom for Assembly.
+On macOS, the current CLI forces the Rust emulator. The embedded SDK
+client defaults to `ExecutorKind::Emulator`; use
+`ExecutorKind::Assembly` on both the client/request when you want the
+Assembly path.
+
+## 4. Prove
+
+Proving is the only expensive stage. It is itself a multi-step
+internal pipeline orchestrated by the executor:
+
+![Diagram: 1. Emulation · 2. Witness planning · 3. Trace generation · 4. Per-AIR proving · 5. Aggregation](/diagrams/svgs/39-deep-pipeline-2.svg)
+
+1. **Emulation:** the ZisK emulator runs the program to determine
+   which secondary state machines (binary, arithmetic, precompiles)
+   are needed and in what quantities.
+2. **Witness planning:** the executor plans AIR instance sizes and
+   allocates memory for trace generation.
+3. **Trace generation:** each AIR's trace is filled in parallel by
+   dedicated witness generators. The Operation Bus routes
+   intermediate values between the Main trace and the sub-AIR
+   generators.
+4. **Per-AIR proving:** each AIR instance is proved independently
+   as a Goldilocks-field STARK. This is the most compute-intensive
+   step and the main target for parallelism and distributed proving.
+5. **Aggregation:** completed proofs are fed into the recursive
+   aggregation tree level by level. Each aggregation circuit
+   verifies two child proofs and accumulates their LogUp partial
+   sums and LtHash contributions. (See
+   [Recursion & aggregation](./recursion) for the details.)
+6. **Root proof:** the root circuit checks that the accumulated
+   LogUp sum is zero and that the accumulated LtHash matches the
+   broadcast challenge, producing the final STARK.
+
+Stages 4 and 5 are where parallelism happens: each per-AIR proof
+and each aggregation node can run independently as soon as its
+inputs are ready. Stage 4 dominates wall-clock time; stages 1–3
+dominate memory.
+
+#### What's inside the per-AIR STARK
+
+Each per-AIR proof in stage 4 is a Goldilocks-field STARK
+generated by the **PIL2** / `proofman` framework. PIL2 is the
+constraint language ZisK uses to express AIRs and bus
+interactions; `proofman` is the polynomial-commitment + low-degree
+testing engine that produces the proof. At a slightly finer
+grain, each per-AIR STARK runs through:
+
+1. **Witness computation:** fill in the AIR's trace columns from
+   the segment's slice of the execution.
+2. **Polynomial commitment:** interpolate each column into a
+   degree-`(N-1)` polynomial and commit to it.
+3. **Challenge sampling:** derive `α` and `γ` (the LogUp
+   challenges) from the prover's transcript via Fiat-Shamir, with
+   the LtHash twist that makes them shareable across independent
+   provers (see [Recursion & aggregation](./recursion#lthash-and-the-shared-challenge)).
+4. **LogUp accumulation:** compute the partial-sum column for the
+   AIR's bus interactions; commit to it; expose its final value
+   as a public output.
+5. **Low-degree test:** prove (via FRI over Goldilocks) that all
+   constraint and accumulation polynomials have degree at most
+   `N-1`.
+6. **Query phase:** answer verifier queries at random row
+   positions to complete the STARK.
+
+The program verification key, the per-segment witness commitments, and
+the public outputs exposed by each AIR are what the aggregation
+tree composes.
+
+The prover can run on CPU or GPU, and can be distributed across
+multiple workers via the coordinator (see
+[Understanding distributed proving](/prover/getting-started/understanding-distributed-proving)).
+
+| How | Command / call |
+|-----|----------------|
+| CLI | `cargo-zisk prove -i <input-file>` |
+| SDK | `client.prove(&PROGRAM, stdin).run()?.await?` |
+
+## 5. Wrap
+
+The default STARK output is the fastest to generate and the largest
+on the wire. Two optional wrapping steps trade extra proving time
+for a different output property:
+
+| `ProofKind`               | Output                | Use when                                                |
+| ------------------------- | --------------------- | ------------------------------------------------------- |
+| `VadcopFinal` *(default)* | Largest, fastest      | Local verification, internal pipelines.                 |
+| `VadcopFinalMinimal`      | Smaller STARK         | Off-chain distribution where size matters.              |
+| `Plonk`                   | Constant-size SNARK   | On-chain verification by an EVM Solidity contract.      |
+
+The Minimal variant is itself a recursive STARK that wraps the
+default output into a smaller proof. The PLONK variant compresses
+the proof further into a constant-size SNARK that an EVM contract
+can verify on-chain.
+
+| How | Command / call |
+|-----|----------------|
+| CLI | `--minimal` or `--plonk` flag on `cargo-zisk prove` |
+| SDK | `.wrap(ProofKind::VadcopFinalMinimal)` or `.wrap(ProofKind::Plonk)` on the prove builder |
+
+## 6. Verify
+
+Verification checks the structure of the proof against the embedded
+program verification key and public values. It does not re-execute
+the program, so its cost is independent of the original computation's
+complexity.
+
+| How | Command / call |
+|-----|----------------|
+| CLI | `cargo-zisk verify -p <proof-file>` |
+| SDK | `proof.verify()?` |
+| Solidity | `verifier.verifySnarkProof(...)` (PLONK only) |
+
+A complete verification is more than just calling `verify()`. There
+are three things to confirm:
+
+1. **The proof is valid:** `proof.verify()?` returns `Ok(())`.
+2. **The guest program is the one you expected:** check the
+   proof's program verification key against an audited one (the SDK
+   exposes this as `proof.with_program_vk(&vk)`).
+3. **The committed public values match what your application
+   requires:** read them via `proof.get_publics().read::<T>()` and
+   compare against expected values.
+
+A proof of a valid but irrelevant computation is still useless;
+applications must assert the public values explicitly.
+
+For very large programs, the prove stage can also be distributed
+across multiple worker machines through a coordinator/worker
+topology over gRPC. That setup is operator-side and lives in the
+prover section, starting with
+[Understanding distributed proving](/prover/getting-started/understanding-distributed-proving)
+and continuing through
+[Prover Architecture](/prover/getting-started/architecture).
+
+## Where this picks up
+
+You now have the full picture of how a program flows through the
+ZisK pipeline. Next steps depend on what you're trying to do:
+
+- **Build a guest program:** start with
+  [Your first guest program](/developer/writing-programs/first-guest).
+- **Drive a proving run end-to-end:** start with
+  [Your first proof](/developer/proving-programs/first-proof).
+- **Look up a specific API:** head to the
+  [References](/references/intro) section for the `zisk-sdk`, `ziskos`,
+  `zisklib`, and `cargo-zisk` surfaces.

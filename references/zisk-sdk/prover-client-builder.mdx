@@ -1,0 +1,815 @@
+---
+id: prover-client-builder
+title: Client builders
+sidebar_position: 5
+displayed_sidebar: referencesSidebar
+description: Configuration builders for embedded and remote prover clients.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`EmbeddedClientBuilder` and `RemoteClientBuilder` configure prover behaviour before `.build()` instantiates the client. A single process-wide guard allows exactly one `ProverClient` (Embedded or Remote) per process.
+
+</Summary>
+
+## What the builders do
+
+Building a prover client is a two-step process. The first step constructs a builder via `ProverClient::embedded()` or `ProverClient::remote(url)`. The second step chains configuration methods on that builder and ends with `.build()`, which constructs the actual `EmbeddedClient` or `RemoteClient`.
+
+```rust
+use zisk_sdk::{ProverClient, ExecutorKind};
+use std::time::Duration;
+
+// Embedded: in-process prover
+let embedded = ProverClient::embedded()
+    .executor(ExecutorKind::Assembly)
+    .gpu()
+    .plonk()
+    .build()?;
+
+// Remote: gRPC client to a coordinator (API port 7000; 50051 is workers-only)
+let remote = ProverClient::remote("http://coordinator:7000")
+    .connect_timeout(Duration::from_secs(5))
+    .request_timeout(Duration::from_secs(600))
+    .build()?;
+```
+
+The split between the builder and the client is deliberate: builder configuration is free (no I/O, no allocation beyond the builder struct itself), so you can construct one, drop it, replace it, or pass it around without paying any cost. Only `.build()` hits the singleton guard, opens the gRPC channel (Remote), or loads the proving key (Embedded).
+
+## Singleton guard
+
+The SDK enforces one `ProverClient` per process across both backends. The guard is a single static `AtomicBool` (`sdk/src/client.rs`) that is consulted by **both** `EmbeddedClientBuilder::build()` and `RemoteClientBuilder::build()`. The first successful build flips the flag; every subsequent build of either kind panics with:
+
+```
+A ProverClient already exists. Only one instance is allowed per process.
+Store it in a shared location (e.g., Arc<EmbeddedClient> / Arc<RemoteClient>)
+and reuse it.
+```
+
+Two practical consequences:
+
+- **Mixing backends is not allowed.** A process that constructs an `EmbeddedClient` cannot also construct a `RemoteClient` (or vice versa). Pick one for the lifetime of the process.
+- **Failed builds still consume the guard.** `RemoteClientBuilder::build()` calls `ensure_single_instance()` *before* it tries to connect to the coordinator. If the connect attempt then fails (coordinator unreachable, wrong port, etc.), the guard has already been flipped. There is no way to retry inside the same process; you must restart it. Validate the coordinator URL or pre-check connectivity before calling `.build()` on a flaky network.
+
+The standard pattern for sharing the client across an application is `Arc`:
+
+```rust
+use std::sync::Arc;
+
+let client = Arc::new(ProverClient::embedded().build()?);
+
+let task = {
+    let client = Arc::clone(&client);
+    tokio::spawn(async move {
+        client.prove(&program, stdin).run()?.await
+    })
+};
+```
+
+`Arc<EmbeddedClient>` and `Arc<RemoteClient>` are both `Clone` and both transparently implement every method of the underlying client.
+
+---
+
+## EmbeddedClientBuilder
+
+Configures a local in-process prover backend.
+
+```rust
+pub struct EmbeddedClientBuilder {
+    executor: ExecutorKind,
+    proof_kind: ProofKind,
+    embedded_opts: EmbeddedOpts,
+    gpu: bool,
+    asm_options: Option<AsmOptions>,
+    proving_key: Option<PathBuf>,
+    proving_key_snark: Option<PathBuf>,
+}
+```
+
+### Default values
+
+| Field               | Default                          |
+| ------------------- | -------------------------------- |
+| `executor`          | `ExecutorKind::Emulator`         |
+| `proof_kind`        | `ProofKind::VadcopFinalMinimal`  |
+| `embedded_opts`     | `EmbeddedOpts::default()`        |
+| `gpu`               | `false`                          |
+| `asm_options`       | `None`                           |
+| `proving_key`       | `None` (uses default search path)|
+| `proving_key_snark` | `None` (uses default search path)|
+
+:::note
+The builder default `proof_kind` is `VadcopFinalMinimal`, but a freshly-constructed `ProveRequest` initialises its `proof_kind` from `ProofKind::default()`, which is `VadcopFinal`. Call `.wrap(ProofKind)` on the request, or `.plonk()` on the builder, to override at the relevant level.
+:::
+
+---
+
+## EmbeddedClientBuilder::executor
+
+Set the executor backend.
+
+```rust
+#[must_use]
+pub fn executor(mut self, executor: ExecutorKind) -> Self
+```
+
+#### Parameters
+
+| Name       | Type           | Description                                                                              |
+| ---------- | -------------- | ---------------------------------------------------------------------------------------- |
+| `executor` | `ExecutorKind` | Either `Emulator` (default, all platforms) or `Assembly` (Linux x86_64 with AVX2 only). |
+
+#### Returns
+
+| Type   | Description                       |
+| ------ | --------------------------------- |
+| `Self` | The builder, with executor set.   |
+
+#### Example
+
+```rust
+let client = ProverClient::embedded()
+    .executor(ExecutorKind::Assembly)
+    .build()?;
+```
+
+`executor` is the typed setter. The convenience aliases `.emulator()` and `.assembly()` exist for readability and forward `Self::executor` calls under the hood.
+
+---
+
+## EmbeddedClientBuilder::emulator
+
+Convenience method to select the Emulator executor explicitly.
+
+```rust
+#[must_use]
+pub fn emulator(mut self) -> Self
+```
+
+Equivalent to `executor(ExecutorKind::Emulator)`. Calling it on a fresh builder is redundant since Emulator is the default; useful when overriding a previously-set Assembly choice in a builder chain that another function returned.
+
+#### Example
+
+```rust
+let client = ProverClient::embedded().emulator().build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::assembly
+
+Convenience method to select the Assembly executor.
+
+```rust
+#[must_use]
+pub fn assembly(mut self) -> Self
+```
+
+Equivalent to `executor(ExecutorKind::Assembly)`. The Assembly executor is significantly faster than the Emulator for large guests but is gated on platform support.
+
+:::warning
+The Assembly executor is supported on **Linux x86_64 with AVX2 only**. On other platforms, calling `.assembly()` itself does not fail. The error surfaces inside `.build()` when the underlying `AsmProver` cannot initialise, typically as a runtime error with the message that AVX2 / Linux x86_64 is required. Test on the target platform before deploying.
+:::
+
+#### Example
+
+```rust
+let client = ProverClient::embedded().assembly().build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::gpu
+
+Enable GPU acceleration.
+
+```rust
+#[must_use]
+pub fn gpu(mut self) -> Self
+```
+
+Sets the `gpu` flag on the builder, which downstream becomes `BackendProverOpts.gpu = true` and `BackendProverOpts.packed = true` (`opts.rs:103-105`). Whether this actually engages a GPU at runtime depends on whether the prover backend was compiled with GPU support. On a CPU-only build the flag is set but has no observable effect.
+
+The `--features gpu` Cargo feature on the bundled `examples/sha-hasher` crate is independent of this flag: that feature gates whether the example *calls* `.gpu()` at all. Your own host code should call `.gpu()` directly against a GPU-capable ZisK build; on the CLI use `--gpu`.
+
+#### Example
+
+```rust
+let client = ProverClient::embedded()
+    .executor(ExecutorKind::Assembly)
+    .gpu()
+    .build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::plonk
+
+Set the proof format to Plonk.
+
+```rust
+#[must_use]
+pub fn plonk(mut self) -> Self
+```
+
+Sets `proof_kind = ProofKind::Plonk` on the builder. This is a **format selector**; it tells the prover which output proof to produce. It does **not** preload the Plonk proving key.
+
+The proof format is also overridable at the request level via `ProveRequest::wrap(ProofKind)`. The request-level override takes precedence over the builder default; use the builder when every prove call in this process should produce Plonk proofs, and the request-level setter when only specific calls should.
+
+To preload the Plonk proving key at startup so the first prove call does not pay the load cost, combine `.plonk()` with `EmbeddedOpts::preload_plonk()` passed via `.with_embedded_opts(...)`. The two flags are independent and can be set together or apart.
+
+#### Example
+
+```rust
+let client = ProverClient::embedded()
+    .plonk()
+    .with_embedded_opts(EmbeddedOpts::default().preload_plonk())
+    .build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::asm_options
+
+Set Assembly-specific options.
+
+```rust
+#[must_use]
+pub fn asm_options(mut self, opts: AsmOptions) -> Self
+```
+
+#### Parameters
+
+| Name   | Type         | Description                                                |
+| ------ | ------------ | ---------------------------------------------------------- |
+| `opts` | `AsmOptions` | Pre-built options. See [AsmOptions](#asmoptions) below.    |
+
+`asm_options` is a hard requirement for Assembly-specific tuning that is not exposed through `EmbeddedOpts`. It is rejected at build time when the executor is not Assembly:
+
+:::warning
+Setting `asm_options` without also calling `.assembly()` (or `.executor(ExecutorKind::Assembly)`) makes `.build()` panic with: *"asm_options were set but the executor is not Assembly. Call .assembly() on the builder before setting asm_options."* (`embedded.rs:131-136`). The check happens at build time, not at construction.
+:::
+
+#### Example
+
+```rust
+use zisk_sdk::AsmOptions;
+
+let asm_opts = AsmOptions::default()
+    .unlock_mapped_memory()
+    .asm_out_file();
+
+let client = ProverClient::embedded()
+    .assembly()
+    .asm_options(asm_opts)
+    .build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::proving_key
+
+Override the path to the Vadcop proving keys directory.
+
+```rust
+#[must_use]
+pub fn proving_key(mut self, path: impl Into<PathBuf>) -> Self
+```
+
+#### Parameters
+
+| Name   | Type                  | Description                          |
+| ------ | --------------------- | ------------------------------------ |
+| `path` | `impl Into<PathBuf>`  | Filesystem path to the proving key.  |
+
+Defaults to `None`, which makes the SDK resolve the path through `get_proving_key`. Override this when proving keys live outside the default search path (a custom install, a per-tenant key tree, a CI checkout, etc.).
+
+The path is consumed at build time. The builder copies it into `EmbeddedOpts.proving_key`; the value set here takes precedence over any `EmbeddedOpts.proving_key` set via `.with_embedded_opts(...)` (`embedded.rs:138-140`).
+
+#### Example
+
+```rust
+let client = ProverClient::embedded()
+    .proving_key("/opt/zisk/keys/vadcop")
+    .build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::proving_key_plonk
+
+Override the path to the Plonk proving keys directory.
+
+```rust
+#[must_use]
+pub fn proving_key_plonk(mut self, path: impl Into<PathBuf>) -> Self
+```
+
+#### Parameters
+
+| Name   | Type                  | Description                                |
+| ------ | --------------------- | ------------------------------------------ |
+| `path` | `impl Into<PathBuf>`  | Filesystem path to the Plonk proving key.  |
+
+The user-facing name is `proving_key_plonk` but the underlying field is `proving_key_snark` (`embedded.rs:122-126`). Both refer to the same key tree; the SDK uses "Plonk" and "snark" interchangeably for the proof format, but the public API uses the Plonk name.
+
+Defaults to `None`. Override only when the Plonk key tree lives outside the default search path. Combine with `.plonk()` when emitting Plonk proofs is the goal, and with `EmbeddedOpts::preload_plonk()` to load the key at startup rather than on first use.
+
+#### Example
+
+```rust
+let client = ProverClient::embedded()
+    .plonk()
+    .proving_key_plonk("/opt/zisk/keys/plonk")
+    .build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::with_embedded_opts
+
+Apply a full `EmbeddedOpts` configuration in one call.
+
+```rust
+#[must_use]
+pub fn with_embedded_opts(mut self, opts: EmbeddedOpts) -> Self
+```
+
+#### Parameters
+
+| Name   | Type           | Description                                                                       |
+| ------ | -------------- | --------------------------------------------------------------------------------- |
+| `opts` | `EmbeddedOpts` | A pre-built options object. See [EmbeddedOpts](#embeddedopts) below.              |
+
+Replaces the builder's `embedded_opts` field wholesale. Use it when you have a pre-built `EmbeddedOpts` value (constructed elsewhere, loaded from config, etc.) rather than chaining method calls on the builder.
+
+Note that `.proving_key(...)` and `.proving_key_plonk(...)` on the builder take precedence over the same fields inside the supplied `EmbeddedOpts` (the builder copies them in *after* `with_embedded_opts`, `embedded.rs:137-143`). To set a custom proving key path through the opts struct, do not also set it on the builder.
+
+#### Example
+
+```rust
+use zisk_sdk::EmbeddedOpts;
+
+let opts = EmbeddedOpts::default()
+    .minimal_memory()
+    .number_threads_witness(8)
+    .preload_plonk();
+
+let client = ProverClient::embedded()
+    .with_embedded_opts(opts)
+    .build()?;
+```
+
+---
+
+## EmbeddedClientBuilder::build
+
+Instantiate the embedded client.
+
+```rust
+pub fn build(self) -> Result<EmbeddedClient>
+```
+
+#### Returns
+
+| Type                     | Description                                                                       |
+| ------------------------ | --------------------------------------------------------------------------------- |
+| `Result<EmbeddedClient>` | The client on success, or an error if proving-key resolution fails.               |
+
+The build step performs four operations, in order (`embedded.rs:129-155`):
+
+1. **Singleton guard.** Calls `ensure_single_instance()`. Panics if any `ProverClient` already exists in this process.
+2. **Asm-options validation.** Panics if `asm_options` is set but the executor is not Assembly.
+3. **Options merge.** Copies the builder's `proving_key` and `proving_key_snark` into the embedded opts (overriding anything set there), then converts to `BackendProverOpts`.
+4. **Prover construction.** Resolves proving-key paths via `get_proving_key` / `get_proving_key_snark`, then constructs `EmuProver` or `AsmProver` depending on the executor. The Plonk key is loaded at this point if `.plonk()` is set or `EmbeddedOpts::preload_plonk()` is set.
+
+A `Result::Err` is returned for prover construction failures (missing or unreadable proving key, AVX2 not available for `AsmProver`, Plonk key load failure, etc.). The singleton guard has already been consumed at this point, so a failed build cannot be retried.
+
+#### Example
+
+```rust
+let client = ProverClient::embedded().build()?;
+```
+
+:::warning
+A second `.build()` call (of either `EmbeddedClientBuilder` or `RemoteClientBuilder`) in the same process panics with the singleton message described in [Singleton guard](#singleton-guard).
+:::
+
+---
+
+## RemoteClientBuilder
+
+Configures a remote (coordinator) backend. The builder establishes a gRPC channel at `.build()` time.
+
+```rust
+pub struct RemoteClientBuilder {
+    url: String,
+    connect_timeout: Duration,
+    request_timeout: Duration,
+}
+```
+
+### Default values
+
+| Field             | Default |
+| ----------------- | ------- |
+| `connect_timeout` | 10 s    |
+| `request_timeout` | 300 s   |
+
+The `url` is mandatory and is supplied via `ProverClient::remote(url)`; there is no setter on the builder for changing it.
+
+---
+
+## RemoteClientBuilder::connect_timeout
+
+Override the connection-establishment timeout.
+
+```rust
+#[must_use]
+pub fn connect_timeout(mut self, d: Duration) -> Self
+```
+
+#### Parameters
+
+| Name | Type       | Description                                          |
+| ---- | ---------- | ---------------------------------------------------- |
+| `d`  | `Duration` | Maximum time to wait for the initial gRPC handshake. |
+
+Controls how long `.build()` waits for the coordinator to accept the gRPC connection. The default 10 s is generous for healthy networks. Lower it for fail-fast behaviour in CI; raise it for high-latency or congested networks.
+
+The timeout applies only to connection establishment. Per-request timing is governed by `request_timeout`.
+
+#### Example
+
+```rust
+use std::time::Duration;
+
+let client = ProverClient::remote("http://coordinator:7000")
+    .connect_timeout(Duration::from_secs(5))
+    .build()?;
+```
+
+---
+
+## RemoteClientBuilder::request_timeout
+
+Override the per-request timeout.
+
+```rust
+#[must_use]
+pub fn request_timeout(mut self, d: Duration) -> Self
+```
+
+#### Parameters
+
+| Name | Type       | Description                                |
+| ---- | ---------- | ------------------------------------------ |
+| `d`  | `Duration` | Maximum time to wait for any single RPC.   |
+
+Applies to every RPC against the coordinator (setup, prove, execute, wrap, upload). The default 300 s suits most proofs; complex programs that take minutes to prove need higher values, often 600 s or more.
+
+This timeout is independent of any timeout passed via `ProveRequest::timeout(...)` at the request level. If both are set, the more restrictive of the two wins.
+
+#### Example
+
+```rust
+let client = ProverClient::remote("http://coordinator:7000")
+    .request_timeout(Duration::from_secs(600))
+    .build()?;
+```
+
+---
+
+## RemoteClientBuilder::build
+
+Instantiate the remote client.
+
+```rust
+pub fn build(self) -> Result<RemoteClient>
+```
+
+#### Returns
+
+| Type                  | Description                                                       |
+| --------------------- | ----------------------------------------------------------------- |
+| `Result<RemoteClient>` | The client on success, or an error if the coordinator handshake fails. |
+
+The build step (`remote.rs:62-66`):
+
+1. **Singleton guard.** Calls `ensure_single_instance()`. Panics if any `ProverClient` already exists in this process. **The guard is consumed before the connect attempt** (see the gotcha below).
+2. **Coordinator connect.** Calls `CoordinatorClient::connect(url, connect_timeout, request_timeout)`. Returns `Err` if the coordinator is unreachable, the URL is malformed, or TLS / auth fails.
+
+:::warning
+A failed connect still consumes the singleton. The guard fires before connect, so an unreachable coordinator returns `Err` from `.build()` and leaves the singleton flag flipped. The same process cannot retry `.build()` on a fresh builder; you must restart the process.
+
+Validate the coordinator URL or pre-check connectivity (a quick TCP probe, a curl against the coordinator's health endpoint) before calling `.build()` if the network is flaky.
+:::
+
+#### Example
+
+```rust
+let client = ProverClient::remote("http://127.0.0.1:7000").build()?;
+```
+
+---
+
+## EmbeddedOpts
+
+Detailed configuration for embedded proving behaviour. All fields are optional; the type implements `Default` and is intended to be built up through chainable `#[must_use]` setters.
+
+```rust
+#[derive(Default, Clone)]
+pub struct EmbeddedOpts {
+    pub minimal_memory:         bool,
+    pub proving_key:            Option<PathBuf>,
+    pub proving_key_snark:      Option<PathBuf>,
+    pub preload_plonk:          bool,
+    pub max_witness_stored:     Option<usize>,
+    pub number_threads_witness: Option<usize>,
+    pub max_streams:            Option<usize>,
+}
+```
+
+GPU acceleration is **not** in this struct; it is set on the builder itself via `.gpu()`. ASM-specific settings live in `AsmOptions`, set via `.asm_options(...)` on the builder.
+
+### Field reference
+
+| Field                    | Type                | Default | Description                                                                            |
+| ------------------------ | ------------------- | ------- | -------------------------------------------------------------------------------------- |
+| `minimal_memory`         | `bool`              | `false` | Reduce RAM footprint at the cost of speed.                                             |
+| `proving_key`            | `Option<PathBuf>`   | `None`  | Custom path to the Vadcop proving key directory.                                       |
+| `proving_key_snark`      | `Option<PathBuf>`   | `None`  | Custom path to the Plonk proving key directory.                                        |
+| `preload_plonk`          | `bool`              | `false` | Eagerly load the Plonk key at client startup instead of on first use.                  |
+| `max_witness_stored`     | `Option<usize>`     | `None`  | Maximum bytes for witness storage during proving. `None` = backend default.            |
+| `number_threads_witness` | `Option<usize>`     | `None`  | Thread pool size for witness generation. `None` = backend default (typically num CPU). |
+| `max_streams`            | `Option<usize>`     | `None`  | Maximum number of parallel proving streams. Most relevant for GPU builds, where it caps the CUDA stream count. |
+
+---
+
+## EmbeddedOpts::minimal_memory
+
+Reduce memory footprint at the cost of proving speed.
+
+```rust
+#[must_use]
+pub fn minimal_memory(mut self) -> Self
+```
+
+Sets `minimal_memory = true`, which propagates to `BackendProverOpts.minimal_memory` and through to `ProofmanOptions`. The backend uses this to pick a memory-conservative path through witness construction. Expect the proof to be slower in exchange.
+
+Use this when proving on memory-constrained hardware (a laptop, a CI runner with a small RAM budget). Leave it off for proving hosts with abundant RAM.
+
+#### Example
+
+```rust
+let opts = EmbeddedOpts::default().minimal_memory();
+let client = ProverClient::embedded()
+    .with_embedded_opts(opts)
+    .build()?;
+```
+
+---
+
+## EmbeddedOpts::proving_key
+
+Set the Vadcop proving keys path.
+
+```rust
+#[must_use]
+pub fn proving_key(mut self, path: impl Into<PathBuf>) -> Self
+```
+
+Equivalent to `EmbeddedClientBuilder::proving_key`, except the value is overridden by the builder's setter at build time if both are set. Prefer setting it on the opts struct when you want a single canonical place to store all options; prefer the builder setter for one-off path overrides.
+
+---
+
+## EmbeddedOpts::proving_key_snark
+
+Set the Plonk proving keys path.
+
+```rust
+#[must_use]
+pub fn proving_key_snark(mut self, path: impl Into<PathBuf>) -> Self
+```
+
+The opts-side method uses the internal `_snark` name (matching the field) where the builder uses `proving_key_plonk` (matching the user-facing terminology). They configure the same setting.
+
+---
+
+## EmbeddedOpts::preload_plonk
+
+Eagerly load the Plonk proving key at client startup.
+
+```rust
+#[must_use]
+pub fn preload_plonk(mut self) -> Self
+```
+
+The Plonk key is large and slow to load. By default it is loaded lazily on the first prove call that produces a Plonk proof. `preload_plonk()` shifts that cost to `.build()` time, making the first prove call faster at the expense of slower startup.
+
+Independent of `.plonk()` on the builder. The two flags can be set together (load eagerly AND emit Plonk proofs), only `preload_plonk()` (load eagerly but emit Vadcop unless overridden per-request), or only `.plonk()` (emit Plonk and pay the load cost on first prove).
+
+#### Example
+
+```rust
+let opts = EmbeddedOpts::default().preload_plonk();
+let client = ProverClient::embedded()
+    .plonk()
+    .with_embedded_opts(opts)
+    .build()?;
+```
+
+---
+
+## EmbeddedOpts::max_witness_stored
+
+Set the maximum memory budget for witness storage.
+
+```rust
+#[must_use]
+pub fn max_witness_stored(mut self, max: usize) -> Self
+```
+
+#### Parameters
+
+| Name  | Type    | Description                                            |
+| ----- | ------- | ------------------------------------------------------ |
+| `max` | `usize` | Maximum bytes the prover may use for witness storage.  |
+
+Caps the in-memory witness storage during proving. When the cap is hit, the prover falls back to a slower memory-conservative path. `None` (the default) lets the backend pick a sensible default based on available RAM.
+
+Use this on hosts shared with other workloads to prevent the prover from monopolising memory.
+
+#### Example
+
+```rust
+let opts = EmbeddedOpts::default()
+    .max_witness_stored(8 * 1024 * 1024 * 1024); // 8 GiB
+```
+
+---
+
+## EmbeddedOpts::number_threads_witness
+
+Set the witness-generation thread pool size.
+
+```rust
+#[must_use]
+pub fn number_threads_witness(mut self, threads: usize) -> Self
+```
+
+#### Parameters
+
+| Name      | Type    | Description                          |
+| --------- | ------- | ------------------------------------ |
+| `threads` | `usize` | Number of worker threads to spawn.   |
+
+The default is `None`, which lets the backend pick (typically the number of available CPU cores). Override when running multiple provers on the same host, when pinning to a specific NUMA node, or when benchmarking single-threaded vs multi-threaded performance.
+
+---
+
+## EmbeddedOpts::max_streams
+
+Set the maximum number of parallel proving streams.
+
+```rust
+#[must_use]
+pub fn max_streams(mut self, max: usize) -> Self
+```
+
+#### Parameters
+
+| Name  | Type    | Description                              |
+| ----- | ------- | ---------------------------------------- |
+| `max` | `usize` | Maximum number of parallel streams.      |
+
+Most relevant for GPU builds, where this caps the number of CUDA streams the prover may run in parallel. On CPU builds, the field still exists but has limited effect since CPU parallelism is already controlled by `number_threads_witness`.
+
+---
+
+## AsmOptions
+
+ASM-specific configuration. Set via `EmbeddedClientBuilder::asm_options(opts)`. Only valid when the Assembly executor is selected.
+
+```rust
+#[derive(Clone, Default)]
+pub struct AsmOptions {
+    pub asm_path:             Option<PathBuf>,
+    pub no_auto_setup:        bool,
+    pub unlock_mapped_memory: bool,
+    pub asm_out_file:         bool,
+    pub is_distributed:       bool,
+}
+```
+
+### Field reference
+
+| Field                  | Type              | Default | Description                                                                                                       |
+| ---------------------- | ----------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `asm_path`             | `Option<PathBuf>` | `None`  | Override the path the ASM emulator binary is loaded from. `None` uses the default search path.                    |
+| `no_auto_setup`        | `bool`            | `false` | Skip the automatic ROM-setup step before proving. Use when setup was performed out of band.                       |
+| `unlock_mapped_memory` | `bool`            | `false` | Unlock the ROM memory mapping. Use on hosts with limited RAM where pinned memory is too expensive.                |
+| `asm_out_file`         | `bool`            | `false` | Redirect the ASM emulator's stdout/stderr to a file rather than the parent process's terminal.                    |
+| `is_distributed`       | `bool`            | `false` | Mark this prover instance as part of a distributed cluster. Set internally by the worker; rarely user-facing.     |
+
+All fields default to safe defaults; you only set the ones you need.
+
+---
+
+## AsmOptions::asm_path
+
+Override the ASM emulator binary path.
+
+```rust
+pub fn asm_path(mut self, path: PathBuf) -> Self
+```
+
+Use when the ASM emulator binary lives somewhere other than the default `~/.zisk/zisk/emulator-asm/` location, such as a custom install or a sandboxed runner.
+
+---
+
+## AsmOptions::no_auto_setup
+
+Skip the automatic ROM setup before proving.
+
+```rust
+pub fn no_auto_setup(mut self) -> Self
+```
+
+By default, the Assembly prover runs `program-setup` automatically when no matching artifacts are found on disk. `no_auto_setup` disables that. Use it when setup was performed out of band (a CI step, a separate setup process) and a missing artifact should be a hard error rather than a silent re-setup.
+
+---
+
+## AsmOptions::unlock_mapped_memory
+
+Unlock the ROM memory mapping.
+
+```rust
+pub fn unlock_mapped_memory(mut self) -> Self
+```
+
+By default, the Assembly prover pins the ROM mapping in physical memory via `mlock` for performance. `unlock_mapped_memory` disables that pinning. Use on hosts where:
+
+- The locked-memory limit (`ulimit -l`) is too low to accommodate the ROM, and raising it is not an option.
+- Multiple processes need to share the host's pinned-memory budget.
+
+The trade-off is slower memory access; pinned memory avoids page faults during proving.
+
+---
+
+## AsmOptions::asm_out_file
+
+Redirect the ASM emulator's stdout to a file.
+
+```rust
+pub fn asm_out_file(mut self) -> Self
+```
+
+By default, the ASM emulator's logs go to the parent process's terminal. `asm_out_file` redirects them to a file. Useful when running the prover inside a daemon, a worker, or a CI environment where mixing logs from multiple subsystems makes the terminal output unreadable.
+
+---
+
+## AsmOptions::is_distributed
+
+Mark this prover instance as part of a distributed cluster.
+
+```rust
+pub fn is_distributed(mut self) -> Self
+```
+
+Set internally by the distributed worker (`zisk-worker`) before constructing its prover. User code rarely sets this directly; if you find yourself reaching for it, consider whether the distributed worker setup would be a better fit.
+
+---
+
+## ExecutorKind
+
+Enum of execution backends.
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExecutorKind {
+    #[default]
+    Emulator,
+    Assembly,
+}
+```
+
+| Variant    | Platform                          | Notes                                                                              |
+| ---------- | --------------------------------- | ---------------------------------------------------------------------------------- |
+| `Emulator` | All platforms                     | Default. Software emulator. Slightly slower than Assembly; works everywhere.       |
+| `Assembly` | Linux x86_64 with AVX2            | Native execution engine. Significantly faster on large guests. Required for hints. |
+
+Selecting `Assembly` on an unsupported platform does not fail until `.build()` constructs the underlying `AsmProver`, which then surfaces a runtime error.
+
+`ExecutorKind` is also passed to the request builders (`ProveRequest::executor`, `ExecuteRequest::executor`) where it overrides the client's default per call. The client's default is set on the builder via `.executor()`, `.emulator()`, or `.assembly()`.
+
+---
+
+## See also
+
+- [ProverClient](/references/zisk-sdk/prover-client): factory entry point.
+- [Pipeline requests](/references/zisk-sdk/pipeline-requests): request builders that accept the configured client.
+- [Proof kinds](/references/zisk-sdk/proof-kinds): `VadcopFinal`, `VadcopFinalMinimal`, `Plonk`.
+- [ZiskHints](./hints): out-of-band acceleration; requires the Assembly executor and `.with_hints()` on setup.

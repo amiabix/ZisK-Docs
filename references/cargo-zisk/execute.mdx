@@ -1,0 +1,84 @@
+---
+id: execute
+title: Execute
+sidebar_position: 4
+displayed_sidebar: referencesSidebar
+description: Run the guest through the proving pipeline without generating a proof.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Run the guest through the same execution pipeline that `prove` uses, without producing a proof. Useful for validating inputs, profiling cycle cost, and debugging guest logic before paying full proving cost.
+
+</Summary>
+
+## Overview
+
+`execute` is a debugging and validation tool. It runs the guest program through the full ZisK proving backend (witness generation, constraint evaluation, all the same stages as `prove`) but stops before proof generation.
+
+Use `execute` when validating that inputs and hint streams parse correctly, when profiling cycle cost in the actual proving pipeline (rather than in lightweight emulation), or when verifying guest logic against the same execution path that `prove` will use later.
+
+Unlike `cargo-zisk run`, which uses a lightweight emulator, `execute` replicates the full backend: same ROM setup, witness generation, and constraint checking. This makes it the right choice for pre-flight checks before proving.
+
+```bash
+cargo-zisk execute [-e <elf>] [-i <input>] [-k <proving-key>]
+```
+
+## Flags
+
+### Common
+
+| Flag | Short | Default | Conflicts | Description |
+|---|---|---|---|---|
+| `--elf <path>` | `-e` | auto-detected | | Path to the guest ELF. Auto-detected from the current project if omitted. |
+| `--inputs <input-file>` | `-i` | none | `--hints` | Path to a `ZiskStdin`-formatted input file. Alias: `--input`. |
+| `--hints <path>` | | none | `--inputs` | Path to a precompiled hints file. |
+| `--proving-key <path>` | `-k` | auto-derived | | Path to the proving key (used for witness computation). |
+| `--verbose` | `-v` | `0` | | Increase logging verbosity. Repeatable: `-v`, `-vv`. |
+
+### Backend
+
+| Flag | Short | Default | Conflicts | Description |
+|---|---|---|---|---|
+| `--emulator` | `-l` | `false` | `--asm` (hidden) | Use the prebuilt emulator backend instead of native ASM. |
+
+### Advanced
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--unlock-mapped-memory` | `-u` | `false` | Unlock the ROM memory mapping. Conflicts with `--emulator`. |
+
+## Examples
+
+Execute with no input:
+
+```bash
+cargo-zisk execute -e ./my-guest.elf
+```
+
+Execute with a binary input file and verbose logging:
+
+```bash
+cargo-zisk execute -e ./my-guest.elf -i ./inputs/data.bin -vv
+```
+
+Execute with a hints file for precompile acceleration:
+
+```bash
+cargo-zisk execute -e ./my-guest.elf --hints ./hints/data.hints
+```
+
+## Outputs
+
+`execute` prints an execution summary to stdout containing total step count, execution time, and cost breakdown:
+
+```
+--- EXECUTE SUMMARY ----------
+Total steps:    2,145,312
+Execution time: 12.345 s
+Cost:           1,234 FROPs
+```
+
+No proof file is generated. The output is suitable for profiling and validation before committing to the full proving pipeline.

@@ -1,0 +1,152 @@
+---
+id: big-integer
+title: Big-integer arithmetic
+sidebar_position: 2
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+description: 256-bit addition and 256/384-bit modular multiply-then-add
+  syscalls.
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Wide-integer arithmetic syscalls for 256-bit and 384-bit operands.
+All operands are little-endian `u64` limbs passed through a single
+params pointer.
+
+</Summary>
+
+<FnPanel>
+
+<FnDef name="syscall_add256">
+
+256-bit unsigned addition. Computes `*x += *y` in-place and returns
+the carry-out. Operands are 4 little-endian `u64` limbs (256 bits
+total).
+
+```rust
+pub unsafe fn syscall_add256(x: *mut u64, y: *const u64) -> u64
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `*mut u64` | Pointer to 4 LE `u64` limbs. Accumulates the result in-place. |
+| `y` | `*const u64` | Pointer to 4 LE `u64` limbs. Added to `x`. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `u64` | Carry-out from the addition (`0` or `1`). |
+
+#### Example
+
+```rust
+let mut x = [u64::MAX, 0, 0, 0]; // 2^64 - 1
+let     y = [1u64,     0, 0, 0];
+let carry = unsafe { syscall_add256(x.as_mut_ptr(), y.as_ptr()) };
+// x == [0, 1, 0, 0], carry == 0
+```
+
+</FnDef>
+
+<FnDef name="syscall_arith256">
+
+256-bit multiply-then-add. Computes `a * b + c + d` and writes the
+512-bit result split across two consecutive 256-bit output slots.
+All operands are 4 LE `u64` limbs; the params struct `p` must lay
+them out as `[a | b | c | d | out_lo | out_hi]`.
+
+```rust
+pub unsafe fn syscall_arith256(p: *mut u64)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut u64` | Pointer to a contiguous buffer of 24 `u64` words: `a` (4), `b` (4), `c` (4), `d` (4), `out_lo` (4), `out_hi` (4). |
+
+#### Returns
+
+Nothing. The lower and upper 256-bit halves of the result are written
+into the `out_lo` and `out_hi` slots of `p`.
+
+#### Example
+
+```rust
+let mut buf = [0u64; 24];
+// fill buf[0..4] = a, buf[4..8] = b, buf[8..12] = c, buf[12..16] = d
+unsafe { syscall_arith256(buf.as_mut_ptr()) };
+// result lo in buf[16..20], hi in buf[20..24]
+```
+
+</FnDef>
+
+<FnDef name="syscall_arith256_mod">
+
+256-bit modular multiply-then-add. Computes `(a * b + c) mod d`.
+All operands and the result are 4 LE `u64` limbs.
+
+```rust
+pub unsafe fn syscall_arith256_mod(p: *mut u64)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut u64` | Pointer to a contiguous buffer of 20 `u64` words: `a` (4), `b` (4), `c` (4), `d` (4, the modulus), `result` (4). |
+
+#### Returns
+
+Nothing. The modular result is written into the `result` slot of `p`.
+
+#### Example
+
+```rust
+let mut buf = [0u64; 20];
+// fill buf[0..4] = a, buf[4..8] = b, buf[8..12] = c, buf[12..16] = modulus
+unsafe { syscall_arith256_mod(buf.as_mut_ptr()) };
+// result in buf[16..20]
+```
+
+</FnDef>
+
+<FnDef name="syscall_arith384_mod">
+
+384-bit modular multiply-then-add. Computes `(a * b + c) mod d`.
+All operands and the result are 6 LE `u64` limbs (384 bits).
+
+```rust
+pub unsafe fn syscall_arith384_mod(p: *mut u64)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut u64` | Pointer to a contiguous buffer of 30 `u64` words: `a` (6), `b` (6), `c` (6), `d` (6, the modulus), `result` (6). |
+
+#### Returns
+
+Nothing. The modular result is written into the `result` slot of `p`.
+
+#### Example
+
+```rust
+let mut buf = [0u64; 30];
+// fill buf[0..6] = a, buf[6..12] = b, buf[12..18] = c, buf[18..24] = modulus
+unsafe { syscall_arith384_mod(buf.as_mut_ptr()) };
+// result in buf[24..30]
+```
+
+</FnDef>
+
+</FnPanel>

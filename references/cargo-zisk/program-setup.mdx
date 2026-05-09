@@ -1,0 +1,76 @@
+---
+id: program-setup
+title: Program setup
+sidebar_position: 3
+displayed_sidebar: referencesSidebar
+description: Derive the proving key and program verification key for a compiled guest ELF.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Derive the proving key and program verification key for a compiled guest ELF. Required once per ELF; regenerate whenever the guest changes.
+
+</Summary>
+
+## Overview
+
+`program-setup` computes program-specific proving material and the program verification key for a guest ELF. It is a one-time preprocessing step that derives the artifacts the backend needs.
+
+Program setup must complete successfully before calling `cargo-zisk prove`. The proving key anchors proofs to a specific compiled binary; rebuilding the guest invalidates the existing key. The command stores the key and assembly artifacts in the ZisK cache directory, where `prove` finds them automatically. Override the path with `--proving-key` for non-standard setups.
+
+The setup process is deterministic: the same ELF always produces the same proving key. GPU acceleration speeds up key derivation for large programs.
+
+```bash
+cargo-zisk program-setup [-e <elf>] [-k <key-path>] [-n] [-g] [-v]
+```
+
+## Flags
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--elf <path>` | `-e` | auto-detected | Path to the guest ELF. Auto-detected from the current project if omitted. |
+| `--proving-key <path>` | `-k` | auto-derived | Path to a precomputed base proving key (input). Auto-derived from the install if omitted. The verkey is written to a separate cache path; see Outputs. |
+| `--hints` | `-n` | `false` | Enable precompile hints in the generated assembly. Use this for guests that rely on hint streams. |
+| `--gpu` | `-g` | `false` | Enable GPU acceleration during setup (non-CPU-only builds only). |
+| `--verbose` | `-v` | `0` | Increase logging verbosity. Repeatable: `-v`, `-vv`. |
+
+## Examples
+
+Run setup with default paths (most common):
+
+```bash
+cargo-zisk program-setup -e ./my-guest.elf
+```
+
+Setup with GPU acceleration:
+
+```bash
+cargo-zisk program-setup -e ./my-guest.elf --gpu
+```
+
+Setup with hints enabled for precompile-heavy guests:
+
+```bash
+cargo-zisk program-setup -e ./my-guest.elf --hints
+```
+
+Setup with verbose output to debug the process:
+
+```bash
+cargo-zisk program-setup -e ./my-guest.elf -vv
+```
+
+## Outputs
+
+The proving key and assembly artifacts are written to the ZisK cache directory (typically `~/.zisk/cache/proving_key/<elf-hash>/`).
+
+```
+~/.zisk/cache/proving_key/
+  <elf-hash>/
+    proving_key.bin
+    assembly.asm
+```
+
+`prove` and `execute` look up the key automatically by ELF hash unless `--proving-key` is specified. On success, the command prints the proving key path.

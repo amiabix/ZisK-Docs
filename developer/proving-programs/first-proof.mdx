@@ -1,0 +1,382 @@
+---
+id: first-proof
+sidebar_position: 1
+title: Your first proof
+description: >-
+  Prove and verify your first ZisK guest program end to end using a
+  SHA-256 hash as the example.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Take a compiled guest ELF through the full proving pipeline. The example is a SHA-256 hash from the writing-programs guide; each step here covers what the SDK and the CLI do under the hood and how the two paths connect.
+
+</Summary>
+
+## What you are doing
+
+Proving runs the compiled guest, records its execution trace, builds arithmetic constraints over that trace, and produces a proof that those constraints are satisfiable.
+
+The verifier checks the proof and learns one thing: the guest ran on its inputs and produced the committed public outputs.
+
+This page takes the SHA-256 guest from the writing-programs guide and runs the full pipeline twice. Once from Rust using `zisk-sdk`, once from the terminal using `cargo-zisk`.
+
+Both paths produce the same proof; the difference is who is driving.
+
+## Set up the project
+
+If you completed [Your first guest program](../writing-programs/first-guest), `cd` into the project. If you modified the guest source since then, rebuild the ELF before continuing:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+```
+
+The prover works directly from the compiled binary. An outdated ELF produces a proof for the wrong program, so the rebuild is not optional after a source change.
+
+If you have not completed the guest guide, start there. It walks through creating the project, writing the guest, and producing the ELF this guide depends on.
+
+---
+
+## From built code to proof
+
+With the ELF in hand, two paths drive the proving pipeline.
+
+**`zisk-sdk`** is the right path when proving is part of a larger Rust application. You drive every stage from code, handle inputs dynamically at runtime, and integrate verification into your own logic.
+
+**`cargo-zisk`** is the right path for development, profiling, and one-off runs. It exposes the same pipeline as a sequence of terminal commands.
+
+Both paths produce the same proof. The two sections below cover them in turn.
+
+---
+
+## Proving with zisk-sdk
+
+The whole proving pipeline runs from Rust through `zisk-sdk`. The host program below sets up the program key, feeds the input, generates a proof, verifies it, and reads the committed digest back, all in one binary.
+
+All the code in this section lives in the host crate (`host/src/main.rs`). The host is an ordinary Rust program that runs on your machine outside the zkVM.
+
+### Add the dependency
+
+Add `zisk-sdk` to the host crate as both a runtime and a build-time dependency. The build-dependency is what lets `host/build.rs` rebuild the guest and export the env vars `load_program!` reads. `tokio` is required because the SDK is async; `anyhow` and `hex` show up in the snippets below:
+
+```toml title="host/Cargo.toml"
+[dependencies]
+zisk-sdk = { workspace = true }
+tokio   = { version = "1", features = ["macros", "rt-multi-thread"] }
+anyhow  = "1"
+hex     = "0.4"
+
+[build-dependencies]
+zisk-sdk = { workspace = true }
+```
+
+Add `host/build.rs` so Cargo rebuilds the guest before each host build and emits the `ZISK_ELF_<name>` / `ZISK_ELF_HASH_<name>` env vars `load_program!` resolves at compile time. Without this, a standalone `cargo-zisk build` before `cargo run` does **not** carry env vars across the two Cargo invocations:
+
+```rust title="host/build.rs"
+use zisk_sdk::build_program;
+
+fn main() {
+    build_program("../guest");
+}
+```
+
+Then import the types you will use in the next steps:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+```
+
+### Initialize the prover client
+
+The `ProverClient` is the entry point to the SDK. It manages the proving backend and exposes every pipeline operation: setup, execute, prove, upload, wrap_proof, verify_constraints.
+
+`ProverClient::embedded().build()?` returns the default embedded backend (Emulator executor on CPU).
+
+The factory has a singleton guarantee: the second `.build()` per process panics. Create the client once at the top of the program and share it from there if other tasks need it.
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    Ok(())
+}
+```
+
+:::info
+The default uses the Emulator executor on CPU and works on every platform. On Linux x86_64 with a CUDA-compatible GPU, see [Choosing a prover client](./prover-client) for the `.assembly()` and `.gpu()` builder methods.
+:::
+
+### Set up the guest program
+
+Tell the prover which guest binary to prove. The `load_program!` macro embeds the compiled ELF into the host binary at compile time, using environment variables emitted by `host/build.rs` during the host's Cargo build (the `build_program("../guest")` call you added above).
+
+The literal passed to `load_program!` is the cargo bin target name of the guest crate, not a path. For a guest crate named `guest` with a default bin target, that is `"guest"`.
+
+Once loaded, pass the program to `.setup()` to derive the program verification key and proving artifacts for that specific binary. The setup is one-time per ELF; subsequent calls with the same binary are no-ops:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!(
+    "guest"
+);
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    // Setting up the guest program
+    client.setup(&PROGRAM).run()?.await?;
+
+    Ok(())
+}
+```
+
+`.run()` submits the setup job and returns a `JobHandle`. Awaiting it blocks until setup finishes and the program-specific artifacts are ready on disk.
+
+### Prepare the input
+
+`ZiskStdin` is the host-side input buffer. Whatever you write into it is exactly what the guest reads with `io::read()` on the other side, in the same order, with the same types.
+
+A type or order mismatch panics at deserialization on the guest.
+
+The example guest reads a single `String`:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!(
+    "guest"
+);
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    // Setting up the guest program
+    client.setup(&PROGRAM).run()?.await?;
+
+    // Building the guest program input
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&String::from("Hello Zisk"));
+
+    // Store the input you generated in a file. Create the parent directory
+    // first since `save` does not create intermediate directories.
+    std::fs::create_dir_all("../inputs")?;
+    stdin.save("../inputs/hello-zisk.bin")?;
+
+    Ok(())
+}
+```
+
+`stdin.save` is optional. It writes the buffered input to disk so the same vector can be replayed via `cargo-zisk prove -i ...`. Skip it if you only need the in-memory buffer for this run.
+
+### Prove the guest program
+
+Call `client.prove()` to generate the proof. The prover re-executes the guest over the input, builds arithmetic constraints over the execution trace, and returns a `ProveResult` that wraps the proof itself plus the public values:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!(
+    "guest"
+);
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    // Setting up the guest program
+    client.setup(&PROGRAM).run()?.await?;
+
+    // Building the guest program input
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&String::from("Hello Zisk"));
+
+    // Store the input you generated. Create the parent directory
+    // first since `save` does not create intermediate directories.
+    std::fs::create_dir_all("../inputs")?;
+    stdin.save("../inputs/hello-zisk.bin")?;
+
+    // Computing the proof
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+    Ok(())
+}
+```
+
+`.run()` returns a `JobHandle<ProveResult>`. Awaiting it blocks until proving finishes.
+
+For long-running jobs, register progress callbacks via `.on(JobEvent::Progress, ...)` before `.run()`; see [Job events](/references/zisk-sdk/job-events) for the full event surface.
+
+### Verify the proof
+
+Verify the proof and read the public values back. `proof.verify()` checks the proof without re-executing the program. When the guest commits raw bytes with `io::commit_slice`, read them back with `get_public_values_slice`:
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!(
+    "guest"
+);
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Instatiating a ProverClient
+    let client = ProverClient::embedded().build()?;
+
+    // Setting up the guest program
+    client.setup(&PROGRAM).run()?.await?;
+
+    // Building the guest program input
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&String::from("Hello Zisk"));
+
+    // Store the input you generated. Create the parent directory
+    // first since `save` does not create intermediate directories.
+    std::fs::create_dir_all("../inputs")?;
+    stdin.save("../inputs/hello-zisk.bin")?;
+
+    // Computing the proof
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+    // Reading the committed digest
+    let mut digest = [0u8; 32];
+    proof.get_public_values_slice(&mut digest);
+    println!("SHA-256(\"Hello Zisk\") => 0x{}", hex::encode(digest));
+
+    // Verifying the proof
+    proof.verify()?;
+    println!("Proof verified successfully!");
+
+    Ok(())
+}
+```
+
+The order matters: the guest called `io::commit_slice(&digest)` once, so one raw slice read retrieves the same 32 bytes on the host side.
+
+### Run the proving pipeline
+
+Run the host program. It sets up the program artifacts, feeds the input, proves, verifies, and prints the digest in one shot:
+
+```bash title="bash"
+cargo run --release
+```
+
+```
+SHA-256("Hello Zisk") => 0xd3e33ed651e7c8d8d4e30ce9a3e4a40e9f089f22435e279a84ea5f8ae234eead
+Proof verified successfully!
+```
+
+The first run takes longer because setup runs end to end; subsequent runs reuse the on-disk program artifacts and only pay the proving cost.
+
+---
+
+## Proving with cargo-zisk
+
+The `cargo-zisk` CLI exposes the same pipeline as a sequence of commands.
+
+This is the fastest way to get from a compiled guest to a verified proof without writing host code, and the right path for development, profiling, and one-off runs.
+
+The full local flow runs four commands. Each one corresponds to a stage of the pipeline:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk program-setup -e <path/to/guest-elf>
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> -o ./proofs/proof.bin --verify-proofs
+cargo-zisk verify -p ./proofs/proof.bin
+```
+
+`build` compiles the guest. `program-setup` derives the program verification key and proving artifacts for that specific ELF. `prove` generates the proof and saves it to disk. `verify` reloads the saved file and verifies it independently.
+
+Each step is covered below with its expected output.
+
+### Build the guest
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+```
+
+Produces the guest ELF at `target/riscv64ima-zisk-zkvm-elf/release/<name>`. Subsequent steps reference that path with `-e`.
+
+### Set up the guest program
+
+Before ZisK can generate a proof it needs program-specific proving artifacts and a **program verification key** derived from your guest binary. The key commits to the program structure so the prover and verifier agree on the exact execution trace being proven:
+
+```zisk-bash title="bash"
+cargo-zisk program-setup -e <path/to/guest-elf>
+```
+
+This is a one-time step per guest binary. Re-run it only when the guest source changes and you rebuild the ELF. You do not need to repeat it between proving runs with different inputs.
+
+:::info
+Setup is intentionally separate from proving. Skipping this step does not skip the work; the prover generates the program artifacts at the start of the first prove call, shifting the cost rather than removing it.
+:::
+
+### Prove the guest program
+
+With the program artifacts in place, run the prover. Pass the ELF, the input, and an explicit output path. `--verify-proofs` runs an in-process verification check before the proof is written:
+
+:::info
+Proof generation can take several minutes depending on the guest's complexity and the host machine.
+:::
+
+```zisk-bash title="bash"
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> -o ./proofs/proof.bin --verify-proofs
+```
+
+```
+Proof generated successfully
+```
+
+`-i` expects a path to a `ZiskStdin`-formatted file. If you ran the SDK section above and saved the input via `stdin.save(...)`, the same file works here unchanged.
+
+### Verify the saved proof
+
+`--verify-proofs` is convenient during proving, but the saved-file verification is the clearest end-to-end check: it reloads the artifact from disk and verifies it without re-executing the guest.
+
+Pass the path to the proof file with `-p`:
+
+```zisk-bash title="bash"
+cargo-zisk verify -p ./proofs/proof.bin
+```
+
+```
+✓ STARK proof was verified
+--- VERIFICATION SUMMARY ---
+      time: 12 milliseconds
+----------------------------
+```
+
+Anyone with the proof file can run this command and be certain the committed values were produced by a correct execution of the guest, without seeing the input nor repeating the computation.
+
+---
+
+## Summary
+
+You just took a SHA-256 computation and turned it into a proof anyone can verify instantly, without re-running the program or ever seeing the input. The same pipeline (setup, prove, verify) applies to any guest you write.
+
+The two paths covered here are the same pipeline driven from different places. Use the SDK when proving is part of a Rust application, and the CLI when you are iterating on a guest or running a one-off prove.
+
+## Where this picks up
+
+With the basic pipeline working, the next pages cover the configuration choices the SDK exposes:
+
+- [Choosing a prover client](./prover-client): configure the prover backend, executor, and device.
+- [Choosing a proof format](./proof-format): pick between STARK and PLONK based on where the proof will be verified.
+
+If you want to keep the defaults for now, head to [Managing guest I/O](./io) for a deeper look at how inputs and outputs flow between host and guest.

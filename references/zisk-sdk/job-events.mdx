@@ -1,0 +1,182 @@
+---
+id: job-events
+title: JobEvent
+sidebar_position: 11
+displayed_sidebar: referencesSidebar
+description: Event variants emitted during job execution. Subscribe via .on()
+  on the request builder or JobHandle.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`JobEvent` enumerates the lifecycle events a pipeline job emits. Subscribe to specific events or all events via `.on(event, callback)` on the request builder before submission, or on the `JobHandle` after.
+
+</Summary>
+
+## Type overview
+
+Pipeline jobs emit `JobEvent` values as they progress. Subscribe by chaining `.on(event, cb)` on the request builder before `.run()`, or on the returned `JobHandle<T>` after submission.
+
+```rust
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobEvent {
+    All,
+    Started,
+    Progress(u8),
+    Completed,
+    Failed(String),
+}
+```
+
+The `All` variant is a subscription filter only and is never emitted to callbacks. The other four variants represent actual events.
+
+```rust
+let handle = client
+    .prove(&program, stdin)
+    .on(JobEvent::Started, |_| println!("started"))
+    .on(JobEvent::Progress(0), |ev| {
+        if let JobEvent::Progress(pct) = ev {
+            println!("progress: {}%", pct);
+        }
+    })
+    .run()?;
+
+let result = handle.await?;
+```
+
+---
+
+## All
+
+Subscription filter meaning "receive every event".
+
+```rust
+JobEvent::All
+```
+
+Pass `JobEvent::All` to `.on()` to subscribe to every event regardless of variant. Callbacks registered with this filter receive `Started`, `Progress`, `Completed`, and `Failed`.
+
+`All` is never delivered to a callback as a concrete event.
+
+#### Example
+
+```rust
+handle.on(JobEvent::All, |event| {
+    println!("event: {:?}", event);
+});
+```
+
+---
+
+## Started
+
+Emitted once when the job is accepted by the backend and execution begins.
+
+```rust
+JobEvent::Started
+```
+
+On remote jobs, fires after the coordinator accepts the job. On embedded jobs, fires when the spawned task starts.
+
+#### Example
+
+```rust
+handle.on(JobEvent::Started, |_| println!("running"));
+```
+
+---
+
+## Progress
+
+Emitted periodically with a progress percentage.
+
+```rust
+JobEvent::Progress(u8)
+```
+
+The `u8` payload ranges 0–100. Phase mapping (remote jobs):
+
+| Phase | Range |
+|---|---|
+| Contributions | 0–25 |
+| Prove | 25–75 |
+| Aggregate | 75–90 |
+| Final | 90–100 |
+
+Embedded clients may emit fewer events than remote clients.
+
+#### Example
+
+```rust
+handle.on(JobEvent::Progress(0), |ev| {
+    if let JobEvent::Progress(pct) = ev {
+        println!("progress: {}%", pct);
+    }
+});
+```
+
+:::note
+Progress events are only emitted by `ProveRequest`. `ExecuteRequest` does not support progress callbacks.
+:::
+
+---
+
+## Completed
+
+Emitted once when the job finishes successfully.
+
+```rust
+JobEvent::Completed
+```
+
+Fired authoritatively from the job's terminal result, ensuring exactly-once semantics. On remote jobs, the coordinator emits this on transition to a terminal completed state. On embedded jobs, it fires when the spawned task returns `Ok`.
+
+#### Example
+
+```rust
+handle.on(JobEvent::Completed, |_| println!("done"));
+```
+
+---
+
+## Failed
+
+Emitted once when the job terminates with an error.
+
+```rust
+JobEvent::Failed(String)
+```
+
+The `String` payload describes the failure reason. On remote jobs, the reason comes from the coordinator (timeout, input error, execution error, internal error). On embedded jobs, the reason is the Rust error converted via `Display`.
+
+Like `Completed`, `Failed` is fired authoritatively and exactly once per job.
+
+#### Example
+
+```rust
+handle.on(JobEvent::Failed(String::new()), |ev| {
+    if let JobEvent::Failed(reason) = ev {
+        eprintln!("failed: {}", reason);
+    }
+});
+```
+
+---
+
+## Emission and dispatch
+
+Events fire synchronously on the task that produces them. For remote jobs, this is the watch task that polls the coordinator. For embedded jobs, it is the spawned task.
+
+Multiple callbacks can be registered for the same event. They fire in registration order, sequentially on the firing task. Callbacks must be `Send + Sync + 'static`.
+
+If an event fires before any subscriber is registered, it is buffered. The first matching `.on()` call replays pending events immediately. This allows late subscription: register callbacks after `.run()` and still observe early events such as `Started`.
+
+`Completed` and `Failed` are fired authoritatively from the job's final terminal status, not from intermediate watch notifications. This guarantees exactly-once delivery and prevents double-firing.
+
+## See also
+
+- [JobHandle](/references/zisk-sdk/job-handle): the type that exposes `.on()`.
+- [Pipeline requests](/references/zisk-sdk/pipeline-requests): request builders that also expose `.on()`.
+- [Cancellation](/references/zisk-sdk/cancellation): cancellation patterns from event callbacks.

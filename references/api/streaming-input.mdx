@@ -1,0 +1,212 @@
+---
+id: streaming-input
+title: PushJobInput / PushJobHintsInput
+sidebar_position: 6
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Client-streaming RPCs for sending input or hint
+  chunks to a running job.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Two parallel client-streaming RPCs that feed additional data
+chunks to a running job. `PushJobInput` carries program input;
+`PushJobHintsInput` carries witness-acceleration hints. Closing
+either stream signals end-of-input (EOF) for that channel.
+
+</Summary>
+
+## When to use these RPCs
+
+You only need these RPCs when the job's input (or hints) is
+**larger than what fits in the inline first chunk** of
+`JobRequest`, *and* you don't want to use a `stream_uri`.
+
+The decision tree:
+
+- **Small input that fits in one message** → put it all in
+  `InputKind.inline` on the initial `JobRequest`. Skip these
+  RPCs entirely.
+- **Large input on shared storage or a network endpoint** → use
+  `InputKind.stream_uri` pointing at `file://`, `unix://`, or
+  `quic://`. The coordinator pulls it itself; no streaming RPC
+  needed.
+- **Large input that the client must push** → put the first
+  chunk in `InputKind.inline`, then push subsequent chunks here.
+  Close the stream when done.
+
+The same options apply to hints, via `ProveRequest.hints`.
+
+---
+
+## PushJobInput
+
+### Signature
+
+```proto
+rpc PushJobInput(stream PushJobInputRequest)
+    returns (google.protobuf.Empty);
+```
+
+| Property | Value |
+| -------- | ----- |
+| Direction | Client-streaming |
+| Idempotent | No (chunks are appended) |
+| Streams | Client → server |
+
+### Request
+
+```proto
+message PushJobInputRequest {
+  string     job_id = 1;
+  InputChunk chunk  = 2;
+}
+
+message InputChunk {
+  bytes data = 1;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_id` | `string` | Job to push input to. Must be in `Queued`, `Running`, or `WaitingForInput` state. The `job_id` must be present on every message in the stream and must be the same value throughout. |
+| `chunk.data` | `bytes` | Raw bytes appended to the job's input buffer. |
+
+### Response
+
+`google.protobuf.Empty`. The server returns it after processing
+EOF (the client closing the stream).
+
+### Behaviour
+
+- **Closing the stream** signals end-of-input. The coordinator
+  marks the input channel as complete; the job will stop
+  re-entering `WaitingForInput` for input chunks.
+- **Sending after EOF** (i.e. opening a fresh `PushJobInput`
+  call for the same `job_id` after a previous stream closed) is
+  rejected: the input channel is sealed.
+- **Multiple concurrent streams for the same `job_id`** is not
+  supported. Use one stream at a time.
+- **Order is preserved**: chunks are appended in the order they
+  arrive on the wire.
+- **Never closing the stream** leaves the job parked in
+  `WaitingForInput` once the worker drains the buffered chunks.
+  Eventually the job's `proof_timeout` /
+  `execute_timeout` fires and the job ends in
+  [`JobFailureTimeout`](./data-types#jobfailure). Always close
+  the stream when you are done sending.
+
+---
+
+## PushJobHintsInput
+
+### Signature
+
+```proto
+rpc PushJobHintsInput(stream PushJobHintsInputRequest)
+    returns (google.protobuf.Empty);
+```
+
+| Property | Value |
+| -------- | ----- |
+| Direction | Client-streaming |
+| Idempotent | No (chunks are appended) |
+| Streams | Client → server |
+
+### Request
+
+```proto
+message PushJobHintsInputRequest {
+  string     job_id = 1;
+  InputChunk chunk  = 2;
+}
+```
+
+Same shape and same semantics as `PushJobInputRequest`. The
+only difference is the destination channel inside the
+coordinator: bytes pushed here go to the hints buffer rather
+than the input buffer.
+
+### Response
+
+`google.protobuf.Empty`. Same EOF semantics as `PushJobInput`.
+
+### Behaviour
+
+- Hints are only consulted by jobs whose program was set up
+  with `with_hints=true`. Pushing hints to a non-hint-aware job
+  is silently ignored on the worker side.
+- The two channels are independent. Closing the input stream
+  does **not** close the hints stream and vice versa.
+
+The split between input and hints exists because the two
+streams have different roles in witness generation: input is
+the program's actual data (read by `io::read*` inside the
+guest), while hints are pre-computed values supplied by the
+host to short-circuit expensive in-circuit computation.
+Keeping them in separate channels lets the worker consume
+each at its own pace and lets clients close one without
+sealing the other.
+
+---
+
+## Coordinating with the job
+
+A typical pattern when streaming a large input:
+
+1. Submit `JobRequest` with `InputKind.inline` carrying the
+   first chunk.
+2. Open a `PushJobInput` stream and start sending the rest of
+   the chunks.
+3. In parallel, open a [`WatchJob`](./watch-job) stream so you
+   know when the job pauses on `waiting_for_input`. (You don't
+   strictly need this (the coordinator will buffer ahead), but
+   it lets you pace the upload to the worker's consumption.)
+4. When the input is fully sent, close the `PushJobInput`
+   stream.
+5. Continue waiting on the `WatchJob` stream (or call
+   [`WaitJobResult`](./wait-job-result)) until terminal.
+
+```rust title="Streaming push (Rust + tonic)"
+use tokio_stream::wrappers::ReceiverStream;
+use tokio::sync::mpsc;
+
+let (tx, rx) = mpsc::channel(8);
+
+// Spawn a producer task feeding chunks into tx
+tokio::spawn(async move {
+    for chunk in reader.chunks() {
+        let msg = PushJobInputRequest {
+            job_id: job_id.clone(),
+            chunk: Some(InputChunk { data: chunk }),
+        };
+        tx.send(msg).await.ok();
+    }
+    // Dropping tx closes the stream and triggers EOF on the server
+});
+
+client.push_job_input(ReceiverStream::new(rx)).await?;
+```
+
+## Errors
+
+| gRPC status | Error | When |
+| ----------- | ----- | ---- |
+| `NotFound` | `JOB_NOT_FOUND` (1001) | `job_id` is not known to the coordinator. |
+| `InvalidArgument` | `INVALID_JOB_STATE` (1004) | Job is in a terminal state, or its input channel has already been sealed by a previous EOF. |
+| `Internal` | `INTERNAL` (3001) | Stream read error on the server. |
+
+See [Errors](./errors) for the full table.
+
+## See also
+
+- [InputKind](./data-types#inputkind): the inline-vs-stream
+  shape that decides whether you need this RPC at all.
+- [WatchJob](./watch-job): surface `waiting_for_input` events
+  to pace your upload.
+- [JobRequest](./job-request): submit the job before pushing
+  more chunks.

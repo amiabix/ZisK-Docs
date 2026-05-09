@@ -1,0 +1,32 @@
+---
+id: deploying
+sidebar_position: 0
+title: Deploying your prover
+description: Bring up a real cluster on bare Linux hosts or Docker Compose, then verify it works end to end.
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="Two paths to a real cluster (bare Linux hosts under
+  systemd or a one-host Docker Compose stack), followed by a guided smoke
+  test that verifies the deployment works. Pick whichever deployment
+  shape fits your environment; the same two binaries run under both.">
+  <PageCard
+    href="/prover/deploying/linux-server"
+    tag="Production" tagColor="green"
+    title="Deploy in Linux server"
+    description="Production deployment on bare Linux hosts: dedicated users, hardened systemd units, journald logs, distributed across machines."
+  />
+  <PageCard
+    href="/prover/deploying/docker-compose"
+    tag="Containers" tagColor="blue"
+    title="Deploy via docker-compose"
+    description="Stand up a multi-worker cluster on one host with a single docker compose up. Best for trying the architecture, CI clusters, or ephemeral environments."
+  />
+  <PageCard
+    href="/prover/deploying/testing"
+    tag="Verify" tagColor="yellow"
+    title="Testing your deployment"
+    description="Verify your deployment end to end by submitting a real proving job from a small Rust host application and watching the proof come back."
+  />
+</IndexPage>

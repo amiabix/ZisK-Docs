@@ -1,0 +1,58 @@
+---
+id: index
+title: zisk-sdk
+sidebar_position: 2
+description: Reference for all host-side types and methods in the
+  zisk-sdk crate.
+displayed_sidebar: referencesSidebar
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="zisk-sdk is the host-side Rust crate for driving the ZisK
+  proving pipeline programmatically. It mirrors the full capability of
+  cargo-zisk: loading guest binaries, preparing inputs, running the emulator,
+  generating execution traces, proving, and verifying.">
+  <PageCard
+    href="/references/zisk-sdk/guest-program"
+    tag="Reference" tagColor="blue"
+    title="GuestProgram"
+    description="Load and manage compiled guest ELF binaries via load_program! or from_uri."
+  />
+  <PageCard
+    href="/references/zisk-sdk/stdin"
+    tag="Reference" tagColor="blue"
+    title="ZiskStdin"
+    description="Host-side in-memory input buffer. Constructors, write/read primitives, file persistence."
+  />
+  <PageCard
+    href="/references/zisk-sdk/stream"
+    tag="Reference" tagColor="blue"
+    title="ZiskStream"
+    description="Live transport for streaming inputs (or hints) to the prover at runtime over Unix socket, QUIC, or gRPC."
+  />
+  <PageCard
+    href="/references/zisk-sdk/hints"
+    tag="Reference" tagColor="blue"
+    title="ZiskHints"
+    description="Precompile hints carrier. Accelerates witness generation for SHA-256, Keccak-256, secp256k1, and other precompiles."
+  />
+  <PageCard
+    href="/references/zisk-sdk/prover-client-builder"
+    tag="Reference" tagColor="blue"
+    title="Client builders"
+    description="EmbeddedClientBuilder and RemoteClientBuilder. Configure executor, device, keys, and timeouts before .build()."
+  />
+  <PageCard
+    href="/references/zisk-sdk/prover-client"
+    tag="Reference" tagColor="blue"
+    title="ProverClient"
+    description="Run setup, execute, prove, upload, and wrap_proof on a configured EmbeddedClient or RemoteClient."
+  />
+  <PageCard
+    href="/references/zisk-sdk/proof"
+    tag="Reference" tagColor="blue"
+    title="Proof"
+    description="The result of a proving run. Loading, saving, verifying, and reading public values."
+  />
+</IndexPage>

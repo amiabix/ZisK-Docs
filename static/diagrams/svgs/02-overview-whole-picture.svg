@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1100 920" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+<style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.mono { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; }
+
+.n-chip rect, .n-chip polygon { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+.n-dec polygon { fill: #FFFFFF; stroke: #007755; stroke-width: 1.5; }
+.n-dec rect { fill: #F3F3F2; stroke: #007755; stroke-width: 1.5; }
+.n-dec text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.edge-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #4A4C59; }
+.edge-label-bg { fill: #FFFFFF; stroke: none; }
+
+.subgraph rect { fill: rgba(110,91,224,0.04); stroke: #6E5BE0; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph.vm rect { fill: rgba(0,179,89,0.04); stroke: #007755; }
+.subgraph text.label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; fill: #6E5BE0; font-weight: 600; }
+.subgraph.vm text.label { fill: #007755; }
+
+.seq-life { stroke: #B9B9C5; stroke-width: 1; stroke-dasharray: 3 4; }
+.seq-msg { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-dashed { fill: none; stroke: #15161D; stroke-width: 1.4; stroke-dasharray: 5 4; }
+.seq-self { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-note rect { fill: rgba(0,179,89,0.07); stroke: #007755; stroke-width: 1; rx: 4; }
+.seq-note text { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-step-num { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9.5px; fill: #7E7F8C; letter-spacing: 0.1em; }
+]]></style>
+            <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+            <marker id="arr2-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+          </defs>
+
+          <!-- Left column: R, E, PK -->
+          <g class="n-art" transform="translate(180,20)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">artifact</text><text class="name" x="90" y="48" text-anchor="middle">Rust crate</text></g>
+          <g class="n-art" transform="translate(180,160)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">artifact</text><text class="name" x="90" y="48" text-anchor="middle">RISC-V ELF</text></g>
+          <g class="n-art" transform="translate(180,300)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">artifact</text><text class="name" x="90" y="48" text-anchor="middle">Proving key</text></g>
+
+          <!-- Right column: Host, Guest, Trace -->
+          <g class="n-chip" transform="translate(720,20)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">process</text><text class="name" x="100" y="48" text-anchor="middle">Host program</text></g>
+          <g class="n-chip" transform="translate(720,160)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">process</text><text class="name" x="100" y="48" text-anchor="middle">Guest in zkVM</text></g>
+          <g class="n-art" transform="translate(720,300)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">artifact</text><text class="name" x="100" y="48" text-anchor="middle">Execution trace</text></g>
+
+          <!-- Center: SP, A, P, V -->
+          <g class="n-art" transform="translate(420,440)"><rect width="260" height="80" rx="8"/><text class="kind" x="130" y="22" text-anchor="middle">artifact</text><text class="name" x="130" y="48" text-anchor="middle">Per-segment STARK proofs</text></g>
+          <g class="n-art" transform="translate(450,560)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">artifact</text><text class="name" x="100" y="48" text-anchor="middle">Aggregation tree</text></g>
+          <g class="n-out" transform="translate(450,680)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">output</text><text class="name" x="100" y="48" text-anchor="middle">Final root proof</text></g>
+          <g class="n-chip" transform="translate(450,800)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">consumer</text><text class="name" x="100" y="50" text-anchor="middle">Verifier</text></g>
+
+          <!-- Edges -->
+          <!-- R -> E: compile -->
+          <path class="edge" d="M 270 100 L 270 160" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="225" y="118" width="90" height="28" rx="2"/>
+          <text class="edge-label" x="270" y="130" text-anchor="middle">compile</text>
+          <text class="edge-label" x="270" y="142" text-anchor="middle" fill="#7E7F8C">cargo-zisk build</text>
+
+          <!-- E -> PK: setup -->
+          <path class="edge" d="M 270 240 L 270 300" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="225" y="258" width="90" height="28" rx="2"/>
+          <text class="edge-label" x="270" y="270" text-anchor="middle">setup</text>
+          <text class="edge-label" x="270" y="282" text-anchor="middle" fill="#7E7F8C">once per ELF</text>
+
+          <!-- H -> G: prepare input -->
+          <path class="edge" d="M 820 100 L 820 160" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="770" y="120" width="100" height="14" rx="2"/>
+          <text class="edge-label" x="820" y="131" text-anchor="middle">prepare input</text>
+
+          <!-- E -> G: dotted, loaded into -->
+          <path class="edge-dim" d="M 360 200 L 720 200" marker-end="url(#arr2-dim)"/>
+          <rect class="edge-label-bg" x="490" y="186" width="80" height="14" rx="2"/>
+          <text class="edge-label" x="530" y="197" text-anchor="middle" fill="#7E7F8C">loaded into</text>
+
+          <!-- G -> T: runs in zkVM -->
+          <path class="edge" d="M 820 240 L 820 300" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="770" y="258" width="100" height="14" rx="2"/>
+          <text class="edge-label" x="820" y="269" text-anchor="middle">runs in zkVM</text>
+
+          <!-- T -> SP: split per chip -->
+          <path class="edge" d="M 820 380 C 820 410, 580 410, 550 440" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="640" y="404" width="100" height="14" rx="2"/>
+          <text class="edge-label" x="690" y="415" text-anchor="middle">split per chip</text>
+
+          <!-- PK -> SP: dotted, used by -->
+          <path class="edge-dim" d="M 270 380 C 270 410, 530 410, 550 440" marker-end="url(#arr2-dim)"/>
+          <rect class="edge-label-bg" x="380" y="404" width="64" height="14" rx="2"/>
+          <text class="edge-label" x="412" y="415" text-anchor="middle" fill="#7E7F8C">used by</text>
+
+          <!-- SP -> A: combine -->
+          <path class="edge" d="M 550 520 L 550 560" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="513" y="528" width="74" height="14" rx="2"/>
+          <text class="edge-label" x="550" y="539" text-anchor="middle">combine</text>
+
+          <!-- A -> P: root -->
+          <path class="edge" d="M 550 640 L 550 680" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="525" y="648" width="50" height="14" rx="2"/>
+          <text class="edge-label" x="550" y="659" text-anchor="middle">root</text>
+
+          <!-- P -> V: verify (ms) -->
+          <path class="edge" d="M 550 760 L 550 800" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="510" y="768" width="80" height="14" rx="2"/>
+          <text class="edge-label" x="550" y="779" text-anchor="middle">verify (ms)</text>
+        </svg>

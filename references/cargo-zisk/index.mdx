@@ -1,0 +1,65 @@
+---
+id: index
+title: cargo-zisk
+sidebar_position: 3
+description: Reference for all cargo-zisk subcommands, flags, and
+  environment variables.
+displayed_sidebar: referencesSidebar
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+---
+
+<IndexPage summary="cargo-zisk is the ZisK command-line tool. It extends Cargo
+  with subcommands for scaffolding projects, compiling guest programs, running
+  them in the emulator, generating proofs, and verifying them.">
+  <PageCard
+    href="/references/cargo-zisk/new"
+    tag="Reference" tagColor="blue"
+    title="new"
+    description="Scaffold a new ZisK workspace from a template, with guest, host, common, and optional evm crates."
+  />
+  <PageCard
+    href="/references/cargo-zisk/build"
+    tag="Reference" tagColor="blue"
+    title="build"
+    description="Compile the guest crate to a RISC-V ELF binary using the ZisK toolchain."
+  />
+  <PageCard
+    href="/references/cargo-zisk/run"
+    tag="Reference" tagColor="blue"
+    title="run"
+    description="Run the guest in the emulator for fast logic and input checks. No proof generated."
+  />
+  <PageCard
+    href="/references/cargo-zisk/program-setup"
+    tag="Reference" tagColor="blue"
+    title="program-setup"
+    description="Pre-generate the proving key for a compiled guest ELF. Required before proving."
+  />
+  <PageCard
+    href="/references/cargo-zisk/execute"
+    tag="Reference" tagColor="blue"
+    title="execute"
+    description="Execute the guest natively through the same pipeline as prove. Validates inputs without generating a proof."
+  />
+  <PageCard
+    href="/references/cargo-zisk/prove"
+    tag="Reference" tagColor="blue"
+    title="prove"
+    description="Generate a proof for a guest program execution."
+  />
+  <PageCard
+    href="/references/cargo-zisk/verify"
+    tag="Reference" tagColor="blue"
+    title="verify"
+    description="Verify a proof file without re-executing the guest."
+  />
+  <PageCard
+    href="/references/cargo-zisk/utils"
+    tag="Reference" tagColor="blue"
+    title="utils"
+    description="Utility subcommands for cleaning cached proving artifacts."
+  />
+</IndexPage>

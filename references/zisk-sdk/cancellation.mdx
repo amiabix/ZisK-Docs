@@ -1,0 +1,281 @@
+---
+id: cancellation
+title: CancellationToken
+sidebar_position: 12
+displayed_sidebar: referencesSidebar
+description: Cooperative cancellation token for cross-thread shutdown patterns.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`CancellationToken` is a cheap, cloneable atomic flag for cooperative cancellation. Clone it across threads, call `cancel()` to signal shutdown, and check `is_cancelled()` at safe points.
+
+</Summary>
+
+## What CancellationToken is
+
+`CancellationToken` is a thin wrapper around `Arc<AtomicBool>`. It carries one bit of state (cancelled or not), is cheap to clone, and is `Send + Sync`.
+
+```rust
+#[derive(Clone, Default)]
+pub struct CancellationToken {
+    flag: Arc<AtomicBool>,
+}
+```
+
+The token is **cooperative**, not preemptive. Calling `token.cancel()` flips the flag to `true`. Nothing happens automatically; cancellation only takes effect at code paths that poll `token.is_cancelled()` and choose to bail out. The prover backend, the coordinator, and the embedded task runner do **not** poll this token. Cancelling a token mid-prove does not stop the proving job.
+
+The right way to think of `CancellationToken`: a shared shutdown flag for **your own** worker loops, watcher tasks, and anything else you control. To cancel a pipeline job itself, use [`JobHandle::cancel`](./job-handle#jobhandlecancel) on a remote handle.
+
+The token uses `Release` ordering on `cancel` and `Acquire` ordering on `is_cancelled`, ensuring visibility of the cancellation signal across all threads holding a clone.
+
+## When to use it
+
+`CancellationToken` is the right tool for three patterns:
+
+- **Cooperative shutdown of your own worker loops.** A producer task feeding a `ZiskStream`, a watcher task polling progress, a stats-collector loop, etc. Each loop checks `token.is_cancelled()` between iterations and exits cleanly.
+- **Hooking pipeline events to a token.** Plumb the token through a `.on(JobEvent, ...)` callback on a `ProveRequest` or `JobHandle` so an event (progress threshold, failure, etc.) flips the token. A separate task watching the token reacts to the flip.
+- **Calling `JobHandle::cancel()` from elsewhere.** Hold the token in two places: one task polls it and calls `JobHandle::cancel()` on a remote handle when it sees the flag flip. This bridges the user-cooperative token model with the actual pipeline cancellation mechanism.
+
+For embedded jobs there is no public way to interrupt a running prove, so the token is the only option for coordinating shutdown around an in-flight embedded job. The job itself runs to completion; the surrounding code reads the token and stops scheduling new work.
+
+```rust
+use zisk_sdk::CancellationToken;
+use std::time::Duration;
+
+let token = CancellationToken::new();
+
+// Watcher task: trip the token after 30 s.
+let trip = token.clone();
+tokio::spawn(async move {
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    trip.cancel();
+});
+
+// Worker task: poll the token between iterations.
+let worker = token.clone();
+while !worker.is_cancelled() {
+    do_one_unit_of_work();
+}
+```
+
+## Wiring patterns
+
+### Pattern 1: trip the token from a JobEvent callback
+
+Set the token from a `.on()` callback so a pipeline event flips the shared flag. A separate task polls the token and decides what to do.
+
+```rust
+use zisk_sdk::{CancellationToken, JobEvent};
+
+let token = CancellationToken::new();
+let cancel_fn = token.as_cancel_fn();
+
+let mut handle = client
+    .prove(&program, stdin)
+    .on(JobEvent::Failed(String::new()), move |_| cancel_fn())
+    .run()?;
+
+// Concurrent tasks that respect the token will bail out when the
+// prove job fails, even though the prove failure surfaces later via
+// the await.
+spawn_dependent_tasks(token.clone());
+
+let result = handle.await;
+```
+
+This pattern is most useful when one prove failure should cascade to other work the application has scheduled.
+
+### Pattern 2: cancel a remote JobHandle from a token-watching task
+
+Call `JobHandle::cancel()` on a remote handle from another task that watches the token. This is the bridge between the cooperative token and the actual pipeline cancellation mechanism.
+
+```rust
+use zisk_sdk::CancellationToken;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+let token = CancellationToken::new();
+let mut handle = client.prove(&program, stdin).run()?;
+let handle = Arc::new(Mutex::new(handle));
+
+// Cancel-watcher: cancel the remote job when the token flips.
+{
+    let token = token.clone();
+    let handle = Arc::clone(&handle);
+    tokio::spawn(async move {
+        while !token.is_cancelled() {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        let _ = handle.lock().await.cancel().await;
+    });
+}
+
+// Some other code path can now flip the token to abort the prove.
+if shutdown_signal_received() {
+    token.cancel();
+}
+
+let result = Arc::clone(&handle).lock().await.deref_mut().await;
+```
+
+This bridges the user-side token to the SDK's actual cancellation mechanism. `JobHandle::cancel` is the only way to actually stop a remote prove; the token is just the trigger.
+
+:::warning
+**Embedded clients**: `JobHandle::cancel` panics on embedded handles (`unimplemented!("cancelling embedded jobs is not supported yet")`). The token-bridge pattern works only for remote jobs. For embedded, the surrounding work can react to the token but the prove itself runs to completion.
+:::
+
+---
+
+## CancellationToken::new
+
+Create a new token in the non-cancelled state.
+
+```rust
+#[must_use]
+pub fn new() -> Self
+```
+
+#### Returns
+
+| Type   | Description                                                  |
+| ------ | ------------------------------------------------------------ |
+| `Self` | A new `CancellationToken` with the flag set to `false`.      |
+
+Allocates one `Arc<AtomicBool>` initialised to `false`. Equivalent to `CancellationToken::default()` (the type derives `Default`).
+
+#### Example
+
+```rust
+let token = CancellationToken::new();
+assert!(!token.is_cancelled());
+```
+
+---
+
+## CancellationToken::cancel
+
+Signal cancellation.
+
+```rust
+pub fn cancel(&self)
+```
+
+Sets the atomic flag to `true` using `Release` ordering. Idempotent: calling it more than once has no additional effect; the second call is a noop because the flag is already `true`.
+
+The call is non-blocking and infallible. It does not contact any task, RPC, or runtime; it just flips one bit. Tasks that poll the token's `is_cancelled` see `true` on their next read; tasks that do not poll the token see nothing.
+
+#### Example
+
+```rust
+let token = CancellationToken::new();
+token.cancel();
+assert!(token.is_cancelled());
+```
+
+---
+
+## CancellationToken::is_cancelled
+
+Check whether cancellation has been requested.
+
+```rust
+pub fn is_cancelled(&self) -> bool
+```
+
+#### Returns
+
+| Type   | Description                                              |
+| ------ | -------------------------------------------------------- |
+| `bool` | `true` if `cancel()` has been called, `false` otherwise. |
+
+Loads the atomic flag using `Acquire` ordering, ensuring that prior `cancel()` calls on any thread are visible.
+
+The standard pattern is to poll between work units in a loop:
+
+```rust
+while !token.is_cancelled() {
+    do_one_unit_of_work();
+}
+```
+
+The frequency of polling is up to the loop. Too rarely and shutdown takes too long; too often and the atomic load adds overhead. For most workloads, polling between iterations of natural work boundaries (one tx, one block, one frame) is right.
+
+---
+
+## CancellationToken::as_cancel_fn
+
+Return a callback that, when invoked, cancels this token.
+
+```rust
+#[must_use]
+pub fn as_cancel_fn(&self) -> Arc<dyn Fn() + Send + Sync>
+```
+
+#### Returns
+
+| Type                             | Description                                                              |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `Arc<dyn Fn() + Send + Sync>`    | A cloneable callback that sets the cancellation flag when called.        |
+
+The returned `Arc` captures a clone of the token's inner `Arc<AtomicBool>`, so calling the closure is equivalent to calling `cancel()` on the original token. The closure can outlive the original `CancellationToken` (the inner Arc keeps the flag alive); calling the closure after the original token is dropped still flips the same flag, and any other clones of the token observe the flip.
+
+This is the right entry point when integrating with APIs that take a callback rather than a token. The most common case is `.on()` on a `ProveRequest` or `JobHandle`:
+
+#### Example
+
+```rust
+let token = CancellationToken::new();
+let cancel_fn = token.as_cancel_fn();
+
+let mut handle = client
+    .prove(&program, stdin)
+    .on(JobEvent::Failed(String::new()), move |_| cancel_fn())
+    .run()?;
+
+// Other tasks holding the token observe the flip when prove fails.
+```
+
+---
+
+## Cloning and sharing
+
+`CancellationToken` is cheap to clone. Internally, `clone()` is `Arc::clone` on the inner `Arc<AtomicBool>`: pointer-sized, no allocation beyond the reference count bump. Every clone shares the same underlying flag.
+
+```rust
+let token = CancellationToken::new();
+let a = token.clone();
+let b = token.clone();
+
+a.cancel();
+assert!(token.is_cancelled());
+assert!(b.is_cancelled());
+```
+
+Clone freely across tasks and threads. The `Send + Sync` bound on the type allows it.
+
+The lifetime of the inner flag is the lifetime of the longest-lived clone. Dropping the original token does not invalidate clones; the flag stays alive as long as any clone (or any closure produced by `as_cancel_fn`) is still around.
+
+---
+
+## Debug impl
+
+`CancellationToken` implements `Debug` by reading the current state and formatting:
+
+```rust
+let token = CancellationToken::new();
+println!("{token:?}");           // CancellationToken { cancelled: false }
+
+token.cancel();
+println!("{token:?}");           // CancellationToken { cancelled: true }
+```
+
+Useful for log lines and assertion messages. The `Debug` read is non-mutating (it just calls `is_cancelled`), so logging a token does not affect its behaviour.
+
+## See also
+
+- [JobHandle::cancel](./job-handle#jobhandlecancel): the actual pipeline cancellation mechanism for remote jobs. The token is a trigger; `JobHandle::cancel` is what stops the work.
+- [JobEvent](./job-events): event hooks for plumbing tokens through `.on()` callbacks.
+- [ZiskStream](./stream): producer streams whose feeding loops are natural places to poll the token.

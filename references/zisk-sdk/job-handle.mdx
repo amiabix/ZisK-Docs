@@ -1,0 +1,293 @@
+---
+id: job-handle
+title: JobHandle
+sidebar_position: 10
+displayed_sidebar: referencesSidebar
+description: In-flight handle to a submitted pipeline job. Configure events,
+  await the result, or cancel.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`JobHandle<T>` is the handle returned from a pipeline request's `.run()`. Configure post-submission callbacks with `.on()`, await to retrieve the result, or call `.cancel()` to abort remote jobs.
+
+</Summary>
+
+## What JobHandle is
+
+Every async pipeline request returns a `JobHandle<T>` from its `.run()` method. The handle represents the in-flight job: a local task on `EmbeddedClient`, or a coordinator-side job on `RemoteClient`. Awaiting the handle blocks until the job reaches a terminal state and resolves to the result type (`ProveResult`, `ExecuteResult`, `SetupResult`, or `VerifyConstraintsResult`).
+
+`UploadRequest` is the one exception: it returns `Result<UploadResult>` synchronously, with no handle.
+
+```rust
+#[must_use = "JobHandle does nothing unless awaited"]
+pub struct JobHandle<T> { /* opaque */ }
+```
+
+The `#[must_use]` attribute makes the compiler warn if you drop the handle without awaiting. There is a reason for the warning: dropping an embedded handle abandons the spawned task (the result is discarded), and dropping a remote handle leaves the coordinator-side job running unless you called `.cancel()` first.
+
+The type parameter `T` is the pipeline-specific result type. The handle works the same way regardless of `T`: configure with `.on()`, optionally `.cancel()`, then `.await`.
+
+## Internal layout
+
+A `JobHandle<T>` carries the job itself plus the metadata the await path needs:
+
+```rust
+pub struct JobHandle<T> {
+    inner:        Option<JobHandleInner<T>>,
+    subscribers:  SubscriberList,         // event bus (shared via Arc)
+    timeout:      Option<Duration>,       // applied at await time
+    pre_process:  Option<PreProcessHook>, // runs before result conversion
+    stream:       Option<ZiskStream>,     // auto-finish on await (remote only)
+    hints_stream: Option<ZiskStream>,     // auto-finish on await (remote only)
+}
+
+enum JobHandleInner<T> {
+    Embedded(tokio::task::JoinHandle<Result<T>>),
+    Remote   { remote_job: Job, _watch_handle: WatchHandle },
+}
+```
+
+A few details that matter for behaviour:
+
+- **`subscribers`** is an `Arc<Mutex<EventBus>>` shared between the request, the handle, and the watch task that fires events. Cloning the handle would clone the `Arc`; events fire to whichever subscribers the bus has at fire time.
+- **`pre_process`** is a one-shot `FnOnce(&TerminalStatus) -> Result<()>` hook installed by some requests (notably `SetupRequest`, which uses it to write the verkey file to disk). It runs after the terminal event fires but before `T::from_terminal` converts the response, so a hook failure surfaces as the await's error.
+- **`stream` / `hints_stream`** are populated only for **remote** handles. Embedded constructions pass `None` for both (`job_handle.rs:139-140`); embedded streams are managed inside `do_prove_inner` and not handed to the handle.
+- **`_watch_handle`** (remote only) keeps the gRPC `WatchJob` task alive for the duration of the await. Dropping the handle drops the watch handle, which aborts the watch task.
+
+## Awaiting
+
+`JobHandle<T>` implements `IntoFuture`, so `.await` works directly:
+
+```rust
+let handle = client.prove(&program, stdin).run()?;
+let result: ProveResult = handle.await?;
+```
+
+The into-future implementation (`job_handle.rs:272-303`) drives the right path based on the inner variant:
+
+- **Embedded**: awaits the `tokio::task::JoinHandle`. A panicked task surfaces as `task panicked: <reason>`. The optional timeout wraps the join; on timeout, the await returns `job timed out after <duration>`.
+- **Remote**: calls `remote_job.wait_async(timeout)` (long-polled via `WaitJobResult`), then fires the terminal event from the authoritative response (Completed / Failed / Cancelled), runs the `pre_process` hook if any, then converts the response to `T` via `T::from_terminal`.
+
+After the inner await completes, both `stream` and `hints_stream` are auto-closed via `finish_async()`. This is **not** an explicit flush; bytes still pending in either stream are not shipped before close. In practice the stream is already drained because `start()` (called by the SDK at job submission) blocks until the executor connects and drains buffered frames, and any later flushes were called by the user or the SDK. The auto-finish is the matching teardown so that any post-completion `flush()` on the same `ZiskStream` blocks safely instead of trying to send to a completed job.
+
+## Drop semantics
+
+Dropping a `JobHandle<T>` without awaiting it abandons the local future. Two consequences depending on backend:
+
+- **Embedded**: the spawned task may continue running to completion, but the result is discarded. There is no way to recover it. If the task panics, the panic is silent; you only see it if you await.
+- **Remote**: the watch task is aborted (the `_watch_handle` drop does this). The coordinator-side job is **not** cancelled by the drop; it continues to terminal state server-side. To intentionally abandon a remote job, call `.cancel()` first.
+
+The `#[must_use]` attribute exists to surface these footguns. Take the warning seriously; dropping a handle is almost never what you want.
+
+---
+
+## JobHandle::on
+
+Register a post-submission event callback.
+
+```rust
+pub fn on(
+    &mut self,
+    event: JobEvent,
+    cb: impl Fn(JobEvent) + Send + Sync + 'static,
+) -> &mut Self
+```
+
+#### Parameters
+
+| Name    | Type                                                | Description                                                                                                       |
+| ------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `event` | `JobEvent`                                          | Event filter. Use `JobEvent::All` to subscribe to every event; use a specific variant to filter to one kind.      |
+| `cb`    | `impl Fn(JobEvent) + Send + Sync + 'static`         | Closure invoked when a matching event fires. Must be `Send + Sync` because events fire from the watch task.       |
+
+#### Returns
+
+| Type        | Description                                                  |
+| ----------- | ------------------------------------------------------------ |
+| `&mut Self` | The handle, for fluent chaining of multiple `.on()` calls.   |
+
+#### Replay semantics
+
+If a matching event has already fired before the callback is registered, the event bus replays it immediately to the new subscriber. Concretely (`job_handle.rs:184-193`):
+
+1. The event bus's `pending` queue holds events that fired with no subscribers.
+2. `.on()` takes ownership of the pending queue, pushes the new subscriber, then drops the lock.
+3. Each pending event is delivered synchronously on the calling task before `.on()` returns, but only to this one new callback (other subscribers already received their copy when the event originally fired).
+
+This means `.on()` after `.run()` reliably observes early events like `Started`, even if the job has already entered the running phase.
+
+#### Multiple callbacks
+
+Multiple callbacks can be registered for the same event filter. They fire in registration order, sequentially, on whichever task produced the event:
+
+- For remote jobs, the watch task spawned by `spawn_watch` (`job_handle.rs:152-153`).
+- For embedded jobs, the `tokio::task::spawn_blocking` worker.
+
+A callback that blocks delays every subsequent callback for that event. Keep callbacks light; if you need to do work in response to an event, spawn it onto a runtime.
+
+#### Example
+
+```rust
+use zisk_sdk::JobEvent;
+
+let mut handle = client.prove(&program, stdin).run()?;
+
+handle
+    .on(JobEvent::Started,    |_| println!("started"))
+    .on(JobEvent::Progress(0), |ev| {
+        if let JobEvent::Progress(pct) = ev {
+            println!("progress: {}%", pct);
+        }
+    });
+
+let result = handle.await?;
+```
+
+The `JobEvent::Progress(0)` filter matches any `Progress` variant regardless of the inner `u8`; the event bus compares variants, not payloads. See [JobEvent](/references/zisk-sdk/job-events) for the full event surface.
+
+---
+
+## JobHandle::job_id
+
+Return the coordinator-assigned job identifier.
+
+```rust
+pub fn job_id(&self) -> Option<JobId>
+```
+
+#### Returns
+
+| Type             | Description                                                  |
+| ---------------- | ------------------------------------------------------------ |
+| `Option<JobId>`  | `Some(id)` for remote jobs; `None` for embedded jobs.        |
+
+Embedded jobs have no coordinator-assigned ID and return `None`. Remote jobs return the UUID the coordinator assigned when the job was submitted.
+
+The ID is useful for:
+
+- Cross-process tracking. Persist the ID at submission time; the coordinator can be queried for the same job from another process or after a restart.
+- Audit logging. Pair the ID with proof outputs so a downstream consumer can correlate a proof with its originating job.
+- Out-of-band cancellation. Pass the ID to a separate process that calls `CancelJob` directly against the coordinator, without holding the original handle.
+
+#### Example
+
+```rust
+let handle = client.prove(&program, stdin).run()?;
+
+if let Some(id) = handle.job_id() {
+    println!("remote job id: {}", id);
+}
+```
+
+---
+
+## JobHandle::cancel
+
+Cancel the in-flight job.
+
+```rust
+pub async fn cancel(&mut self) -> Result<bool>
+```
+
+#### Returns
+
+| Type             | Description                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------------- |
+| `Result<bool>`   | `Ok(true)` if cancellation was honoured; `Ok(false)` if the job had already reached a terminal state.    |
+
+Two paths:
+
+- **Remote**: calls `remote_job.cancel_async()`, which sends a `CancelJob` RPC to the coordinator and waits until the job reaches a terminal state (Cancelled, Completed, or Failed). The `bool` return reflects which terminal state was reached, not whether the RPC itself succeeded.
+- **Embedded**: panics with `unimplemented!("cancelling embedded jobs is not supported yet")`. Embedded `JobHandle::cancel` is a footgun in the current SDK.
+
+After `.cancel()` is called:
+
+- The handle has been mutated, but is still owned. You can still `.await` it; the await resolves with whatever terminal state the job reached.
+- Dropping the handle without awaiting after a successful cancel is fine on remote jobs; the coordinator job is already terminal.
+
+#### Already-consumed handle
+
+`cancel()` returns `Err("cannot cancel: JobHandle already consumed")` if the inner has been taken (e.g., by `into_future`). In practice this only happens if you await and then call cancel, which is a misuse; once awaited, the job is already terminal.
+
+:::warning
+**Embedded clients**: calling `.cancel()` on an embedded `JobHandle` panics at runtime. Cancellation is currently supported only for remote jobs. Use [CancellationToken](/references/zisk-sdk/cancellation) for cooperative cancellation patterns where the guest itself periodically checks a token.
+:::
+
+#### Example
+
+```rust
+let mut handle = client.prove(&program, stdin).run()?;
+
+match handle.cancel().await {
+    Ok(true)  => println!("cancelled"),
+    Ok(false) => println!("already terminal"),
+    Err(e)    => eprintln!("cancel failed: {e}"),
+}
+```
+
+---
+
+## JobId
+
+Coordinator-assigned identifier for a remote job.
+
+```rust
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct JobId(pub(crate) String);
+
+impl From<String>     for JobId         { /* wraps the string */ }
+impl From<JobId>      for String        { /* unwraps it */ }
+impl std::fmt::Display for JobId        { /* writes the inner string */ }
+```
+
+The inner `String` is `pub(crate)`, so user code cannot construct or destructure a `JobId` directly. Use the `From` / `Into` impls to round-trip through `String`.
+
+`JobId` derives `Clone`, `Debug`, `PartialEq`, `Eq`, and `Hash`, so it works as a `HashMap` key, can be compared for equality, and can be cloned cheaply (it's a `String` clone, so the cost is one heap allocation per clone).
+
+#### Example
+
+```rust
+let handle = client.prove(&program, stdin).run()?;
+
+if let Some(id) = handle.job_id() {
+    let s: String = id.into();        // round-trip via From<JobId>
+    persist_to_audit_log(&s);
+}
+```
+
+For remote jobs the ID is the UUID v4 the coordinator assigned at submission. The same ID is queryable through the coordinator's gRPC API (`WatchJob`, `WaitJobResult`, `CancelJob`).
+
+---
+
+## Event flow under the hood
+
+This section is for readers who want to know what the SDK actually does between `.run()` and `.await`. User code does not need it.
+
+For **remote** jobs, the SDK spawns a watch task at handle construction (`job_handle.rs:151-153`) that listens to the coordinator's `WatchJob` stream and translates each domain event to an SDK `JobEvent`:
+
+| Domain event                 | SDK event                | Notes                                                                                  |
+| ---------------------------- | ------------------------ | -------------------------------------------------------------------------------------- |
+| `Queued`, `WaitingForInput`  | (silently filtered)      | No SDK event fires.                                                                    |
+| `Started`                    | `JobEvent::Started`      | Fires once per job.                                                                    |
+| `Progress(Contributions)`    | `JobEvent::Progress(25)` | Fixed checkpoint value, not a range.                                                    |
+| `Progress(Prove)`            | `JobEvent::Progress(75)` | Fixed checkpoint value.                                                                 |
+| `Progress(Aggregate)`        | `JobEvent::Progress(90)` | Fixed checkpoint value.                                                                 |
+| `Completed`, `Failed`, `Cancelled` | (suppressed in watch)    | Terminal events are fired authoritatively from the `WaitJobResult` response instead. |
+
+The `Progress` percentages are constants (`PROGRESS_CONTRIBUTIONS = 25`, `PROGRESS_PROVE = 75`, `PROGRESS_AGGREGATE = 90`) defined at `job_handle.rs:20-22`. There is no fine-grained interpolation; each phase fires exactly one `Progress(pct)` with the matching constant.
+
+Terminal events go through a separate path. The watch task suppresses domain terminal events to avoid double-firing; the await path calls `wait_async`, examines the returned `TerminalStatus`, and fires `Completed` / `Failed(reason)` from there (`job_handle.rs:254-262`). This guarantees exactly-once delivery of terminal events even when the watch and wait streams overlap.
+
+For **embedded** jobs the path is simpler: `Started` is fired by the `spawn_blocking` worker before the job runs (`embedded/prove.rs:32`); `Completed` or `Failed(reason)` is fired by `fire_result_event` from the worker's result (`embedded/prove.rs:36`). Embedded handles do not emit `Progress` events.
+
+---
+
+## See also
+
+- [Pipeline requests](/references/zisk-sdk/pipeline-requests): the `.run()` calls that produce handles.
+- [JobEvent](/references/zisk-sdk/job-events): event variants, dispatch semantics, and the buffered-then-replayed delivery contract.
+- [Cancellation](/references/zisk-sdk/cancellation): `CancellationToken` patterns for cooperative shutdown when `JobHandle::cancel` is not available (e.g., on embedded clients).
+- [ZiskStream](/references/zisk-sdk/stream): how the auto-finish at handle await closes the stream lifecycle.

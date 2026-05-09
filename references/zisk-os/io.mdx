@@ -1,0 +1,464 @@
+---
+id: io
+title: IO
+sidebar_position: 2
+displayed_sidebar: referencesSidebar
+description: Guest-side I/O primitives for reading inputs and
+  committing public outputs inside a ZisK guest program.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Guest-side primitives for reading host-provided inputs and
+committing public outputs into the proof. Every other I/O
+capability, from hashing to recursive verification, builds on these
+two operations.
+
+</Summary>
+
+## Module overview
+
+ZisK guests execute inside a zkVM that has no operating system, no
+filesystem, no networking, and no environment.
+
+The only data that crosses into the guest is whatever the host
+wrote into the input region before execution started, and the only
+data the guest can publish is whatever it commits into the proof's
+public-output region.
+
+The `io` module is the sanctioned interface for both directions. It
+provides four primitives that map directly onto the underlying
+memory regions:
+
+| Direction | Typed              | Raw                           |
+| --------- | ------------------ | ----------------------------- |
+| Read      | `io::read::<T>()`  | `io::read_input_slice()`      |
+| Commit    | `io::commit(&v)`   | `io::commit_slice(&buf)`      |
+
+Two auxiliary functions cover the less common cases.
+`write_output_reset` rewinds the output cursor for guests that
+emit several output sequences in a single run.
+
+`verify_zisk_proof` verifies a child ZisK proof from inside an
+aggregation guest.
+
+```rust
+use ziskos::io;
+
+let n: u64 = io::read();
+let data: Vec<u8> = io::read();
+
+let digest = compute(&n, &data);
+io::commit(&digest);
+```
+
+The rest of this page first explains the input and output models in
+enough detail to write correct guest code, then documents each
+function in the order they typically appear in a guest program.
+
+## Reading inputs
+
+Inputs are presented to the guest as an ordered sequence of
+frames. A frame is the unit of data produced by a single `write`
+or `write_slice` call on the host.
+
+Each `io::read` or `io::read_input_slice` call on the guest
+consumes exactly one frame.
+
+A frame written by `ZiskStdin::write` or `ZiskStdin::write_slice` carries a header:
+
+| Field   | Width   | Description                                            |
+| ------- | ------- | ------------------------------------------------------ |
+| Length  | 8 bytes | Little-endian byte length of the payload.              |
+| Payload | N bytes | The serialized value or raw byte slice, zero-padded to an 8-byte boundary. |
+
+For `write`, the payload is the bincode-serialized value. For
+`write_slice`, the payload is exactly the byte slice passed by the
+host. In both cases the guest reader consumes the length header and
+padding; guest code sees only the payload.
+
+`io::read::<T>()` deserializes a framed payload using **bincode**.
+The guest type `T` must match the host type passed to `write`
+exactly: same memory layout, same field order, same encoding
+rules.
+
+A mismatch raises a deserialization panic from bincode.
+
+`io::read_input_slice()` returns the raw payload bytes without
+attempting to decode them, so the guest can apply its own format.
+
+```rust
+use ziskos::io;
+
+// Host wrote: stdin.write(&3u64), stdin.write_slice(&payload_bytes)
+let n: u64 = io::read();
+let payload = io::read_input_slice();
+assert_eq!(payload.len() as u64, n);
+```
+
+The frame ordering is the contract between host and guest. A type
+mismatch fails loudly with a panic.
+
+A length mismatch on `read_input_slice` is quieter: the frame reader
+still consumes the correct frame, but your program logic may be
+hashing, parsing, or validating the wrong payload. Assert expected
+lengths when the protocol requires them.
+
+## Committing public outputs
+
+Public outputs are encoded into a fixed-size array of **32-bit
+little-endian slots** that lives at a known address in the guest's
+output data region.
+
+The verifier reads those slots back from the proof to obtain the
+program's outputs, and the proving system constrains them so that
+the guest cannot lie about what it produced.
+
+Both `io::commit` and `io::commit_slice` append to this array and
+advance an internal slot cursor. The encoding rules apply
+uniformly:
+
+- Each call serializes its argument to bytes (`commit` uses bincode;
+  `commit_slice` uses the bytes as-is) and packs them into 32-bit
+  slots, four bytes per slot, little-endian.
+- If the call's byte length is not a multiple of four, the trailing
+  slot is zero-padded in its high bytes.
+- Each call begins a fresh slot, so two consecutive calls never
+  share a partial slot. Up to three bytes of padding per call may
+  be wasted as a result.
+
+This cursor model has practical consequences for output design.
+Group bytes that should share a slot into a single `commit_slice`
+call.
+
+Avoid mixing `commit` and `commit_slice` for parts of the same
+logical value: the bincode framing inside `commit` is not what an
+external verifier expects to read alongside raw bytes.
+
+```rust
+use ziskos::io;
+
+// Single SHA-256 digest, 32 bytes, exactly 8 slots, no padding.
+let digest: [u8; 32] = sha256(&input);
+io::commit_slice(&digest);
+
+// Mixed types via bincode. Round-trips through the host's bincode
+// decoder using the same Rust types.
+io::commit(&Summary { ok: true, count: 42 });
+```
+
+The verifier sees the slot sequence in the order they were
+written. Two consumers of the same proof must agree on the layout
+and the encoding strategy.
+
+Freezing the output schema before deployment matters as much as
+freezing the input schema.
+
+## Hint streams and recursive verification
+
+Two further capabilities are layered on top of input reads:
+
+- **Hints**, supplied by the host through `ZiskHints`, accelerate
+  precompile witness generation. Hints are not part of the guest's
+  observable input, so they are not read through `io::read`. See
+  the [Hints reference](/references/zisk-sdk/hints) for the host
+  side.
+- **Recursive verification**, exposed by `io::verify_zisk_proof`,
+  lets a guest read a child ZisK proof from input and verify it
+  in-circuit. Aggregation guests use this to fold many child proofs
+  into a single proof that attests to all of them.
+
+---
+
+## io::read
+
+Reads the next value from the input stream and deserializes it into
+`T` using bincode. The read order must match the host's write order
+exactly.
+
+```rust
+pub fn read<T: DeserializeOwned>() -> T
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `T` | type parameter | Target type. Must implement `serde::DeserializeOwned`. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `T` | The deserialized value of the next input frame. |
+
+The frame's length header determines how many bytes are consumed.
+The payload is then passed to `bincode::deserialize`.
+
+On the zkvm target, the underlying slice read is zero-copy: bincode
+deserializes directly from the input region without allocating an
+intermediate buffer.
+
+#### Example
+
+```rust
+let n: u64        = io::read();
+let data: Vec<u8> = io::read();
+```
+
+:::warning
+Read order must match write order exactly. A type mismatch produces
+a deserialization panic; a length mismatch is silent, leaving the
+next read out of sync.
+:::
+
+---
+
+## io::read_input_slice
+
+Returns the payload of the next input frame as a raw byte slice
+without deserializing it. Use this when the data is already in a
+binary format the guest can interpret directly, or when bincode adds
+unwanted overhead.
+
+```rust
+// On the zkvm target
+pub fn read_input_slice<'a>() -> &'a [u8]
+
+// On host builds (testing, native execution)
+pub fn read_input_slice() -> Box<[u8]>
+```
+
+#### Parameters
+
+None.
+
+#### Returns
+
+| Build target | Type | Description |
+|---|---|---|
+| zkvm | `&'a [u8]` | Borrowed reference into the input region. Zero-copy. |
+| host | `Box<[u8]>` | Owned slice copied out of the input source. |
+
+The two return types reflect the underlying access path. On the
+zkvm target the input is a memory-mapped region, so a borrow is
+sufficient. On host builds the bytes come from a file or in-memory
+buffer that has to be allocated.
+
+The frame's 8-byte length header is consumed transparently; only
+the payload is exposed.
+
+#### Example
+
+```rust
+// Read a 32-byte digest written via stdin.write_slice on the host.
+let digest = io::read_input_slice();
+assert_eq!(digest.len(), 32);
+
+// Reinterpret raw bytes without copying (zkvm: zero-copy).
+let words: &[u64] = unsafe {
+    core::slice::from_raw_parts(
+        digest.as_ptr() as *const u64,
+        digest.len() / 8,
+    )
+};
+```
+
+:::warning
+On the zkvm target, the returned reference is valid only until the
+next `io::read` or `io::read_input_slice` call. Copy the bytes you
+need before the next read; do not store the reference past it.
+:::
+
+---
+
+## io::commit
+
+Serializes `value` with bincode and appends the result to the
+public output as 32-bit slots. Committed values are written into the
+proof and visible to the verifier.
+
+```rust
+pub fn commit<T: Serialize>(value: &T)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `value` | `&T` | Reference to the value to commit. `T` must implement `serde::Serialize`. |
+
+#### Returns
+
+Nothing. The serialized bytes are packed into the next available run
+of 32-bit slots.
+
+`commit` is the typed counterpart to `commit_slice`. The bincode
+output is passed to `commit_slice` internally, so the same packing
+rules apply: four bytes per slot, last slot zero-padded if needed.
+
+#### Example
+
+```rust
+let result: u64 = compute(&input);
+io::commit(&result);
+
+let summary = MySummary { ok: true, count: 42 };
+io::commit(&summary);
+```
+
+:::warning
+The verifier reads public values in the same order they were
+committed. Two callers reading the same proof must agree on both
+the order and the type of each commit.
+:::
+
+---
+
+## io::commit_slice
+
+Appends raw bytes to the public output as 32-bit slots, without
+any bincode framing.
+
+Use this when the data is already in its final byte representation,
+or to avoid bincode overhead on large fixed-shape payloads such as
+digests or ABI-encoded structs.
+
+```rust
+pub fn commit_slice(buf: &[u8])
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `buf` | `&[u8]` | Raw bytes to pack into 32-bit slots. |
+
+#### Returns
+
+Nothing. The bytes are packed four per slot, little-endian. If
+`buf.len()` is not a multiple of four, the trailing slot is
+zero-padded in its high bytes.
+
+Each `commit_slice` call starts a fresh slot run at the current
+cursor. Two consecutive calls do not share a partial slot, so up to
+three bytes per call may be wasted as padding. Group bytes that
+should share a slot into a single call.
+
+#### Example
+
+```rust
+// Commit a fixed-size digest without bincode overhead.
+let digest: [u8; 32] = Sha256::digest(&input).into();
+io::commit_slice(&digest);
+
+// Commit a Solidity-ABI-encoded payload for an on-chain verifier.
+let encoded: Vec<u8> = output.abi_encode();
+io::commit_slice(&encoded);
+```
+
+:::warning
+No length prefix or framing is added, so the verifier must know the
+exact byte count and slot layout in advance. Prefer `commit` when
+the consumer is a Rust program that already uses bincode.
+:::
+
+---
+
+## io::write_output_reset
+
+Resets the public-output slot cursor to zero. Subsequent `commit`
+and `commit_slice` calls start writing from the first slot,
+overwriting any values already there.
+
+```rust
+pub fn write_output_reset()
+```
+
+#### Parameters
+
+None.
+
+#### Returns
+
+Nothing. The slot cursor is reset; the slot contents themselves are
+left untouched until the next write reaches them.
+
+The guest runtime calls `write_output_reset` automatically during
+initialization on host builds, so the cursor always starts at zero
+on each test run.
+
+Manual calls are needed only when a single guest run produces
+several independent output sequences.
+
+#### Example
+
+```rust
+io::commit(&first_result);
+
+io::write_output_reset();
+
+// The next commit overwrites slot 0 onward.
+io::commit(&second_result);
+```
+
+:::note
+This is a low-level utility. Most guests should commit exactly once
+per logical output and let the cursor advance naturally.
+:::
+
+---
+
+## io::verify_zisk_proof
+
+Verifies a ZisK Vadcop final proof from inside the guest itself.
+This is the building block for aggregation guests, which read one
+or more child proofs from input, verify them, and then commit a
+summary that proves each child was verified.
+
+```rust
+pub fn verify_zisk_proof(zisk_proof: &[u8]) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `zisk_proof` | `&[u8]` | Raw bytes of a ZisK proof, with the verifier key concatenated as the last 32 bytes. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if the proof verifies, `false` otherwise. |
+
+The function splits `zisk_proof` into two regions. All bytes except
+the last 32 form the proof; the trailing 32 bytes are the verifier
+key. Both are passed to the in-guest Vadcop verifier.
+
+#### Example
+
+```rust
+// Aggregation guest: read two child proofs, verify both, commit
+// the conjunction as a public output.
+let proof1: Vec<u8> = io::read();
+let proof2: Vec<u8> = io::read();
+
+let valid = io::verify_zisk_proof(&proof1)
+         && io::verify_zisk_proof(&proof2);
+
+if !valid {
+    panic!("child proof verification failed");
+}
+
+io::commit(&valid);
+```
+
+:::warning
+Proof verification is expensive, and it dominates the cost of an
+aggregation guest. Reach for it only when recursive verification is
+actually required; do not call it on bytes the host has already
+validated.
+:::

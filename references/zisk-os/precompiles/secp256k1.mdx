@@ -1,0 +1,67 @@
+---
+id: secp256k1
+title: secp256k1
+sidebar_position: 3
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+description: G1 point addition and doubling syscalls over secp256k1.
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Raw secp256k1 elliptic curve syscalls. Point operands use
+`SyscallPoint256`: `x ++ y`, each coordinate as 4 LE `u64` limbs
+(256 bits). For addition, `p.x` and `p.y` are the two input points;
+the result overwrites `p.x`.
+
+</Summary>
+
+<FnPanel>
+
+<FnDef name="syscall_secp256k1_add">
+
+secp256k1 G1 point addition. Reads two affine points from `p` and
+writes the sum into `p.x` in-place.
+
+```rust
+pub unsafe fn syscall_secp256k1_add(p: *mut SyscallPoint256)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallPoint256` | Input: `p.x` and `p.y` are the two addend points. Output: result written back into `p.x`. |
+
+#### Returns
+
+Nothing. The result point is written into `p.x` in-place.
+
+</FnDef>
+
+<FnDef name="syscall_secp256k1_dbl">
+
+secp256k1 G1 point doubling. Doubles the point in `p.x` and writes
+the result back in-place.
+
+```rust
+pub unsafe fn syscall_secp256k1_dbl(p: *mut SyscallPoint256)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallPoint256` | Input: `p.x` is the point to double. Output: result written back into `p.x`. |
+
+#### Returns
+
+Nothing. The doubled point is written into `p.x` in-place.
+
+</FnDef>
+
+</FnPanel>

@@ -1,0 +1,432 @@
+---
+id: install-macos
+sidebar_position: 2
+title: Install on macOS
+description: Install the ZisK CLI, Rust toolchain, and proving key on macOS 14+ with both Apple Silicon and Intel support. Covers prebuilt binaries, build from source, and macOS-specific emulator limitations.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Install the ZisK CLI, Rust toolchain, and proving key on macOS 14+ (Apple Silicon and Intel). The `ziskup` installer is the recommended path; build from source for custom commits or unusual environments.
+
+</Summary>
+
+## What gets installed
+
+A working ZisK install consists of four pieces, each with its own role in the proving pipeline.
+
+| Piece | Role | Disk |
+|---|---|---|
+| **`cargo-zisk` CLI** | Drives every developer-facing command (`build`, `program-setup`, `prove`, `verify`, `wrap-proof`). Installed at `~/.zisk/bin/cargo-zisk`. | ~80 MB |
+| **`ziskemu`** | Standalone Rust emulator for executing guests off the proving path. Installed at `~/.zisk/bin/ziskemu`. | ~40 MB |
+| **ZisK Rust toolchain** | Custom Rust toolchain that targets `riscv64ima-zisk-zkvm-elf`. Registered with `rustup` under the name `zisk` so guest crates compile to ZisK ELFs. | ~1.5 GB |
+| **Proving key** | Material the prover loads at runtime. Anchors every proof to the current ZisK circuit. Installed under `~/.zisk/provingKey`. | ~40 GB (CPU) / ~80 GB (GPU) |
+
+The proving key is the largest artifact and the only optional one. Guests can be compiled, executed, and debugged without it; only proof generation needs it.
+
+The four installer options later in this page let you skip or substitute it for smaller alternatives.
+
+The rest of this page walks the install in three phases: prepare the system, install ZisK itself, and verify the result.
+
+A separate section at the end covers building the proving key from scratch for the rare case where the prebuilt key cannot be used.
+
+## System requirements
+
+ZisK targets **macOS 14 or higher** on both Apple Silicon (arm64) and Intel (x86_64) processors. All prebuilt binaries support both architectures; `ziskup` detects your system automatically.
+
+| Component | Requirement | Notes |
+|---|---|---|
+| **OS** | macOS 14 Sonoma or higher | Both Apple Silicon and Intel x86_64 supported. |
+| **CPU** | Apple Silicon (arm64) or Intel (x86_64) | Both architectures ship with prebuilt binaries. |
+| **RAM (development)** | ≥ 16 GB | For compiling guests and running the Rust emulator. |
+| **RAM (proving, Rust emulator)** | ≥ 32 GB | Trace memory floor for the Rust emulator backend. |
+| **Disk** | ≥ 100 GB free | Toolchain (~1.5 GB), CLI binaries (~150 MB), proving key (~40–80 GB), guest builds (a few GB). |
+| **GPU (optional)** | NVIDIA with CUDA toolkit | Rarely supported on macOS; CPU-only is typical. |
+
+If proof generation is not part of the workflow (for example, you only build and execute guests for development), the proving-key disk requirement disappears and 16 GB of RAM is enough.
+
+:::warning
+**macOS emulator limitation:** The Assembly executor is Linux x86_64 only. On macOS, all guest execution uses the Rust emulator, which is slower than the Assembly backend but fully functional. Proof generation works end to end; the performance ceiling is lower than on Linux.
+:::
+
+## Software prerequisites
+
+Two tools must already be installed before running the ZisK installer:
+
+| Tool | Why it is needed | Install |
+|---|---|---|
+| **Rust** | Provides the host-side stable toolchain. ZisK adds a second toolchain named `zisk` for cross-compiling guest code; both must coexist. | [rustup.rs](https://rustup.rs) |
+| **Homebrew** | Package manager for installing system libraries and tools not bundled with macOS. | [brew.sh](https://brew.sh) |
+
+Xcode Command Line Tools are also required for C/C++ compilation:
+
+```bash
+xcode-select --install
+```
+
+## System dependencies
+
+The ZisK CLI links against several system libraries at runtime, and the build-from-source path needs more for the prover backend, the OpenMPI runtime, and the RISC-V cross-compiler. Install them via Homebrew in one invocation:
+
+```bash
+brew install \
+  jq curl libomp protobuf openssl nasm pkgconf open-mpi \
+  libffi nlohmann-json libsodium riscv-tools
+```
+
+Each package serves a specific part of the pipeline:
+
+- **OpenMP runtime (`libomp`)**: parallelizes witness generation in the prover.
+- **Protocol Buffers (`protobuf`)**: compiles the gRPC schemas the SDK and coordinator share.
+- **Cryptographic libraries (`libsodium`)**: back the precompile state machines.
+- **NASM (`nasm`)**: assembles fast-path components.
+- **OpenMPI (`open-mpi`)**: required by the distributed proving runtime.
+- **RISC-V cross-compiler (`riscv-tools`)**: produces the RV64IMA binaries the ZisK toolchain links against.
+- **`libffi`, `nlohmann-json`, `openssl`**: supporting libraries for the build and runtime.
+
+Installing the full list is the path of least resistance and avoids re-running brew later.
+
+---
+
+## Install ZisK
+
+Two paths produce a working install: the prebuilt binaries via `ziskup`, and a from-source build. The choice is straightforward.
+
+| Path | When to choose |
+|---|---|
+| **Prebuilt binaries** (recommended) | Standard development workflow, CI, evaluation, anything that does not require a custom build. The fastest path; takes a few minutes including the proving key download. |
+| **Build from source** | Tracking a specific commit, modifying the toolchain, running on a system the prebuilt binaries do not target, or contributing to ZisK itself. Takes 15–30 minutes for the build alone, plus an optional 45–60 minutes for the proving key. |
+
+Most readers want the prebuilt path. The from-source path follows it.
+
+### Prebuilt binaries (recommended)
+
+The `ziskup` installer downloads a release archive, extracts it under `~/.zisk`, registers the ZisK toolchain with `rustup`, and downloads the proving key.
+
+```bash
+curl https://raw.githubusercontent.com/0xPolygonHermez/zisk/main/ziskup/install.sh | bash
+```
+
+The script automatically detects your CPU architecture (Apple Silicon or Intel) and installs the matching binaries. Next it prompts for the proving-key option:
+
+```
+1) Install proving key (default - just press enter)
+2) Install proving key (no constant tree files)
+3) Install verify key
+4) None
+```
+
+| # | Option | Disk | Choose if |
+|---|---|---|---|
+| 1 | **Install proving key** | ~40 GB CPU / ~80 GB GPU | You want to generate and verify proofs. The default. |
+| 2 | **Install proving key (no constant tree files)** | ~30 GB CPU / ~60 GB GPU | You want to save upfront disk by building constant trees yourself when first needed. |
+| 3 | **Install verify key only** | ~50 MB | You only verify proofs other parties produced. Verifier nodes, light clients. |
+| 4 | **None** | 0 | You only compile and execute guests on the emulator without proving. |
+
+Option 1 is the right answer for almost every developer setup. Skip to option 4 only when disk pressure or scope makes it the obvious choice.
+
+The script then runs `cargo-zisk toolchain install` automatically, which downloads and registers the ZisK Rust toolchain.
+
+Finally, it appends a `PATH` entry to your shell profile (`~/.zshenv` for zsh, `~/.bashrc` for bash, `~/.config/fish/config.fish` for fish). Open a new terminal or `source` the profile to pick up the change.
+
+#### Verify the prebuilt install
+
+Three quick checks confirm everything landed correctly. Run each in a fresh terminal so the updated `PATH` is visible:
+
+```bash
+# 1. The CLI is on PATH and reports its version.
+cargo-zisk --version
+
+# 2. The ZisK toolchain is registered with rustup.
+rustup toolchain list
+
+# 3. The installer's binary directory exists.
+ls ~/.zisk/bin
+```
+
+`rustup toolchain list` should include an entry named `zisk` alongside the host toolchains. `~/.zisk/bin` should contain at least `cargo-zisk`, `ziskemu`, `ziskup`, `zisk-coordinator`, and `zisk-worker`.
+
+If all three checks pass, ZisK is ready. Continue to the [Quickstart](./quickstart) to write and prove a first guest.
+
+:::info
+If the verify-key or no-key options were chosen and proof generation is needed later, re-run `ziskup` with `--provingkey`. The download takes 5–10 minutes depending on bandwidth.
+:::
+
+#### Install the SNARK proving key (on-chain only)
+
+The default install ships only the STARK proving key. Generating PLONK proofs for on-chain EVM verification requires an additional SNARK proving key:
+
+```bash
+ziskup setup_snark
+```
+
+This downloads `provingKeySnark` to `~/.zisk` and is only needed if `cargo-zisk wrap-proof --plonk` is part of your workflow. Skip it otherwise; the download is large and serves no purpose for off-chain proofs.
+
+### Build from source
+
+Building from source is the right path when tracking a specific commit, modifying the toolchain, or supporting a system the prebuilt binaries do not target.
+
+The build itself takes 15–30 minutes on a typical development machine. The optional proving-key generation that follows takes 45–60 minutes more.
+
+#### Clone and build
+
+Clone the ZisK monorepo and build the release artifacts in one step. The build produces the CLI, the Rust emulator, the RISC-V transpiler, the distributed coordinator and worker binaries, and the C interop static library:
+
+```bash
+git clone https://github.com/0xPolygonHermez/zisk.git
+cd zisk
+cargo build --release
+```
+
+The first build downloads and compiles every dependency from scratch and can take 30 minutes on slower hardware. Subsequent builds are incremental and finish in seconds.
+
+#### Install the binaries
+
+Copy the produced artifacts into `~/.zisk/bin` so the CLI can locate them at runtime. The list mirrors what the prebuilt installer ships:
+
+```bash
+mkdir -p $HOME/.zisk/bin
+cp target/release/cargo-zisk \
+   target/release/ziskemu \
+   target/release/riscv2zisk \
+   target/release/zisk-coordinator \
+   target/release/zisk-worker \
+   target/release/libziskclib.a \
+   $HOME/.zisk/bin
+```
+
+:::note
+The Assembly emulator (including `emulator-asm` sources and `lib-c` directory) is Linux x86_64 only and not needed on macOS. The Rust emulator (`ziskemu`) handles all guest execution on macOS.
+:::
+
+#### Add the binaries to your PATH
+
+Add `~/.zisk/bin` to your shell's `PATH` so `cargo-zisk` and `ziskemu` are reachable from any directory. For zsh (the default on modern macOS):
+
+```bash
+echo 'export PATH="$PATH:$HOME/.zisk/bin"' >> ~/.zshenv
+source ~/.zshenv
+```
+
+Use `~/.bashrc` for bash or `~/.config/fish/config.fish` for fish. The change persists across terminals once the profile is updated.
+
+#### Install the ZisK Rust toolchain
+
+`cargo-zisk` ships with a subcommand that fetches the prebuilt ZisK Rust toolchain and registers it with `rustup`:
+
+```bash
+cargo-zisk toolchain install
+```
+
+This is the same command the prebuilt installer runs internally. The toolchain is downloaded from the ZisK release artifacts and added under the name `zisk`.
+
+If the prebuilt toolchain does not match your platform, build it from source instead:
+
+```bash
+cargo-zisk toolchain build
+```
+
+Building the toolchain from source takes 30–45 minutes and requires every dependency listed in the [Rust source build prerequisites](https://github.com/rust-lang/rust/blob/master/INSTALL.md#dependencies).
+
+Use this path only when the prebuilt toolchain is unsuitable.
+
+#### Verify the source install
+
+Confirm everything landed correctly:
+
+```bash
+rustup toolchain list      # should include 'zisk'
+cargo-zisk --version       # should print the build version
+ls ~/.zisk/bin             # should contain cargo-zisk, ziskemu, riscv2zisk, etc.
+```
+
+A successful install at this point produces a working CLI and a registered toolchain. Proof generation additionally requires the proving key, which is covered next.
+
+---
+
+## Building the proving key
+
+:::note
+This section is only needed when ZisK was built from source AND proof generation is part of the workflow. Installs that used `ziskup` and selected option 1 or 2 already have a working proving key. Skip this section in that case.
+:::
+
+The proving key encodes the arithmetic constraints of the ZisK circuit and is required at runtime for proof generation. Building it from scratch produces the same artifact the `ziskup` installer downloads.
+
+The build takes 45–60 minutes. Use this path only when tracking a custom commit or modifying the circuit itself.
+
+The build needs **Node.js 20 or higher** and three companion repositories cloned alongside the `zisk` directory.
+
+### Clone the supporting tools
+
+The setup pipeline depends on three external repositories: the PIL2 compiler that turns the constraint description into a binary format, the proofman runtime that runs the setup, and its JavaScript tooling layer.
+
+Clone them into the parent folder of `zisk/`:
+
+```bash
+git clone https://github.com/0xPolygonHermez/pil2-compiler.git
+git clone https://github.com/0xPolygonHermez/pil2-proofman.git
+git clone https://github.com/0xPolygonHermez/pil2-proofman-js.git
+```
+
+Install their Node.js dependencies:
+
+```bash
+(cd pil2-compiler && npm i)
+(cd pil2-proofman-js && npm i)
+```
+
+The directory layout after cloning should be:
+
+```
+.
+├── zisk/
+├── pil2-compiler/
+├── pil2-proofman/
+└── pil2-proofman-js/
+```
+
+### Generate fixed data
+
+Fixed data contains precomputed arithmetic tables used by the ZisK state machines. The values are constant across all executions and must exist before the circuit is compiled. Generate them from inside the `zisk/` directory:
+
+```bash
+cd zisk
+cargo run --release --bin arith_frops_fixed_gen
+cargo run --release --bin binary_basic_frops_fixed_gen
+cargo run --release --bin binary_extension_frops_fixed_gen
+```
+
+Each command writes its output under `tmp/fixed/`. The three together take 5–10 minutes.
+
+### Compile the ZisK PIL
+
+PIL (Polynomial Identity Language) is the constraint description language ZisK uses to describe its circuit. This step compiles `pil/zisk.pil` into a binary representation the setup tool can process.
+
+The Node.js heap is bumped to 16 GB because the constraint system is too large for the default heap:
+
+```bash
+node --max-old-space-size=16384 \
+  ../pil2-compiler/src/pil.js pil/zisk.pil \
+  -I pil,../pil2-proofman/pil2-components/lib/std/pil,state-machines,precompiles \
+  -o pil/zisk.pilout \
+  -u tmp/fixed \
+  -O fixed-to-file
+```
+
+The flags break down as:
+
+- `-I` adds search paths for `include` directives in the PIL source.
+- `-o` is the output path for the compiled circuit.
+- `-u` points at the fixed-data directory generated in the previous step.
+- `-O fixed-to-file` writes the compiled fixed data to disk so the setup step can mmap it.
+
+The output is `pil/zisk.pilout`, the compiled circuit description that the next step reads.
+
+### Generate the STARK proving key
+
+This is the longest step, typically 30–45 minutes. It reads the compiled circuit and generates the proving parameters: commitment keys, evaluation domains, and precomputed polynomial evaluations.
+
+```bash
+node --max-old-space-size=16384 --stack-size=8192 \
+  ../pil2-proofman-js/src/main_setup.js \
+  -a ./pil/zisk.pilout \
+  -b build \
+  -t ../pil2-proofman/pil2-components/lib/std/pil \
+  -u tmp/fixed \
+  -r \
+  -s ./state-machines/starkstructs.json
+```
+
+The output is written to `build/provingKey/`. Disk usage is ~40 GB.
+
+### Generate the SNARK proving key (on-chain only)
+
+Run this step only if proofs need on-chain EVM verification. It generates a PLONK proving key that wraps the STARK proof into a compact SNARK, which is the format on-chain verifier contracts accept.
+
+The command reads `powersOfTau28_hez_final_27.ptau`, a Powers-of-Tau ceremony output. Place the file in the parent directory before running:
+
+```bash
+node ../pil2-proofman-js/src/main_setup_snark.js \
+  -b build \
+  -t ../pil2-proofman/pil2-components/lib/std/pil \
+  -f \
+  -w ../powersOfTau28_hez_final_27.ptau \
+  -p ./state-machines/publics.json \
+  -n plonk
+```
+
+The result is stored under `build/provingKeySnark/`. Skip this step entirely for off-chain-only workflows.
+
+### Install the proving key
+
+Move the generated key under `~/.zisk` so `cargo-zisk` finds it at proving time:
+
+```bash
+cp -R build/provingKey $HOME/.zisk
+```
+
+Repeat for `provingKeySnark` if the SNARK key was generated. The CLI reads from these paths automatically; no further configuration is needed.
+
+---
+
+## Updating ZisK
+
+Re-run `ziskup` at any time to upgrade to the latest release. With no flags, it installs the toolchain plus the proving and verify keys, equivalent to selecting option 1 at the interactive prompt:
+
+```bash
+ziskup
+```
+
+Pass flags to skip the prompt and target a specific component:
+
+| Flag | Effect |
+|---|---|
+| `--provingkey` | Installs or updates the proving key only. Useful for refreshing the key after a circuit change without reinstalling everything. |
+| `--verifykey` | Installs or updates the verify key only. Useful for verifier nodes that do not generate proofs. |
+| `--nokey` | Updates the toolchain and CLI binaries only, leaving any existing key in place. |
+| `-v <version>` | Install a specific release version (e.g., `-v 0.17.0`) instead of the latest. |
+
+Pin a specific version on production hosts to control upgrade timing:
+
+```bash
+ziskup -v 0.17.0 --provingkey
+```
+
+## Uninstall
+
+Remove the toolchain registration first, then delete the install directory:
+
+```bash
+rustup uninstall zisk
+rm -rf $HOME/.zisk
+```
+
+The `PATH` entry the installer added to your shell profile must be removed manually. Search `~/.zshenv` (or `~/.bashrc`, `~/.config/fish/config.fish`) for the `$HOME/.zisk/bin` line and delete it.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `cargo-zisk: command not found` after install | The installer added the `PATH` entry but the current shell hasn't sourced the profile. | Open a new terminal, or run `source ~/.zshenv`. |
+| `fatal error: '_stddef.h' file not found` while building from source | Xcode Command Line Tools are not fully installed or path is misconfigured. | Run `xcode-select --install` and check the toolchain path with `xcrun --show-sdk-path`. |
+| `error: toolchain 'zisk' is not installed` when running `cargo +zisk build` | The ZisK toolchain was not registered with rustup, or the registration was lost. | Run `cargo-zisk toolchain install`. |
+| `proving key not found` at proving time | Either the key was not installed (option 3 or 4 chosen at install), or `~/.zisk/provingKey` is missing. | Run `ziskup --provingkey` to download the prebuilt key. |
+| `failed to load proving key` after upgrading ZisK | The proving key in `~/.zisk` is older than the new ZisK version. | Run `ziskup --provingkey` to refresh. Major version changes typically require a key update. |
+| Rust emulator runs slowly | Expected on macOS; the Assembly emulator is Linux x86_64 only. | Use the Rust emulator for development; for production, consider proving on a Linux x86_64 machine. |
+
+If a problem is not listed, the [ZisK GitHub issues](https://github.com/0xPolygonHermez/zisk/issues) are the right place to search next.
+
+## What to do next
+
+A successful install lands a working CLI, a registered toolchain, and (in most cases) a proving key. The next page walks through writing and proving a minimal program:
+
+- **[Quickstart](./quickstart):** scaffold a project, build, execute, prove, and verify in one sitting.
+
+For deeper context on the pipeline this install enables:
+
+- **[How ZisK works → The pipeline](/intro/how-zisk-works/pipeline):** the six developer-facing stages this CLI drives end to end.
+- **[Limits](/intro/deep/limits):** hard upper bounds on input size, ROM, RAM, and execution length, with real-world utilisation as a yardstick.

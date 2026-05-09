@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1240 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.byte-box rect { fill: #FFFFFF; stroke: #15161D; stroke-width: 1; }
+.byte-box text.label { fill: #15161D; font-weight: 500; font-size: 14px; }
+.byte-num { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+.caption { font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; fill: #4A4C59; font-style: italic; }
+    ]]></style>
+  </defs>
+
+  <!-- Row 1 (y=40-100): byte 0-31, single I instruction -->
+  <g class="byte-box">
+    <rect x="60" y="60" width="1100" height="50" rx="2"/>
+    <text class="label" x="610" y="92" text-anchor="middle">I instruction</text>
+  </g>
+  <text class="byte-num" x="60" y="50">0</text>
+  <text class="byte-num" x="1160" y="50" text-anchor="end">31</text>
+
+  <!-- Row 2 (y=130-180): byte 32-63, M instruction -->
+  <g class="byte-box">
+    <rect x="60" y="140" width="1100" height="50" rx="2"/>
+    <text class="label" x="610" y="172" text-anchor="middle">M instruction</text>
+  </g>
+  <text class="byte-num" x="60" y="130">32</text>
+  <text class="byte-num" x="1160" y="130" text-anchor="end">63</text>
+
+  <!-- Row 3 (y=210-260): byte 64-95, A instruction (complex) -->
+  <g class="byte-box">
+    <rect x="60" y="220" width="1100" height="50" rx="2"/>
+    <text class="label" x="610" y="252" text-anchor="middle">A instruction (complex)</text>
+  </g>
+  <text class="byte-num" x="60" y="210">64</text>
+  <text class="byte-num" x="1160" y="210" text-anchor="end">95</text>
+
+  <!-- Row 4 (y=290-340): split — C 96-111 + I 112-127 -->
+  <g class="byte-box">
+    <rect x="60" y="300" width="550" height="50" rx="2"/>
+    <text class="label" x="335" y="332" text-anchor="middle">C instruction</text>
+  </g>
+  <g class="byte-box">
+    <rect x="610" y="300" width="550" height="50" rx="2"/>
+    <text class="label" x="885" y="332" text-anchor="middle">I instruction</text>
+  </g>
+  <text class="byte-num" x="60" y="290">96</text>
+  <text class="byte-num" x="606" y="290" text-anchor="end">111</text>
+  <text class="byte-num" x="614" y="290">112</text>
+  <text class="byte-num" x="1160" y="290" text-anchor="end">127</text>
+
+  <!-- Row 5 (y=370-420): split — I 128-143 + C 144-159 (complex) -->
+  <g class="byte-box">
+    <rect x="60" y="380" width="550" height="50" rx="2"/>
+    <text class="label" x="335" y="412" text-anchor="middle">I instruction</text>
+  </g>
+  <g class="byte-box">
+    <rect x="610" y="380" width="550" height="50" rx="2"/>
+    <text class="label" x="885" y="412" text-anchor="middle">C instruction (complex)</text>
+  </g>
+  <text class="byte-num" x="60" y="370">128</text>
+  <text class="byte-num" x="606" y="370" text-anchor="end">143</text>
+  <text class="byte-num" x="614" y="370">144</text>
+  <text class="byte-num" x="1160" y="370" text-anchor="end">159</text>
+
+  <!-- Row 6 (y=450-500): byte 160-191, I instruction -->
+  <g class="byte-box">
+    <rect x="60" y="460" width="1100" height="50" rx="2"/>
+    <text class="label" x="610" y="492" text-anchor="middle">I instruction</text>
+  </g>
+  <text class="byte-num" x="60" y="450">160</text>
+  <text class="byte-num" x="1160" y="450" text-anchor="end">191</text>
+
+  <text class="caption" x="610" y="560" text-anchor="middle">RISC-V code split per instruction</text>
+</svg>

@@ -1,0 +1,370 @@
+---
+id: secp256r1
+title: secp256r1 (P-256)
+sidebar_position: 4
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`zisklib` functions for secp256r1 (P-256) field arithmetic, curve
+operations, and ECDSA signature verification.
+
+</Summary>
+
+## Module overview
+
+secp256r1 is the NIST P-256 curve. It shares the same field/group
+structure as secp256k1 but uses different constants (`p`, `n`, `a`,
+`b`). It is the curve behind TLS, JWT, WebAuthn, and FIDO2.
+
+The zisklib surface for P-256 is intentionally narrow: only the
+operations needed for ECDSA verification and recovery are exposed
+as zk-accelerated wrappers. For the full ECC suite (Schnorr,
+multi-scalar mul, more field ops), use [secp256k1](./secp256k1).
+
+The page is organized bottom-up. The base field (Fp) underpins all
+curve arithmetic; the scalar field (Fn) holds exponents and ECDSA
+components; the curve section composes Fp and Fn into point
+operations; ECDSA verification calls into all three.
+
+:::note
+Points are `[u64; 8]` (x ++ y, 4 LE limbs each).
+Field elements (Fp) and scalar elements (Fn) are `[u64; 4]` LE limbs.
+The `hints: &mut Vec<u64>` parameter is gated behind the `hints` feature and is only present when that feature is enabled.
+:::
+
+---
+
+## Base field (Fp)
+
+Arithmetic modulo the P-256 prime `p`. These primitives are the
+lowest layer; curve operations and the ECDSA verifier consume them.
+
+<FnPanel>
+
+<FnDef name="add_fp_secp256r1">
+
+Addition in the secp256r1 (P-256) base field Fp.
+
+```rust
+pub fn add_fp_secp256r1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fp operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fp operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x + y mod p` in the P-256 base field. |
+
+#### Example
+
+```rust
+let sum = zisklib::add_fp_secp256r1(&x_limbs, &y_limbs);
+```
+
+</FnDef>
+
+<FnDef name="mul_fp_secp256r1">
+
+Multiplication in the secp256r1 (P-256) base field Fp.
+
+```rust
+pub fn mul_fp_secp256r1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fp operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fp operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x * y mod p` in the P-256 base field. |
+
+#### Example
+
+```rust
+let product = zisklib::mul_fp_secp256r1(&x_limbs, &y_limbs);
+```
+
+</FnDef>
+
+<FnDef name="square_fp_secp256r1">
+
+Squaring in the secp256r1 (P-256) base field Fp.
+
+```rust
+pub fn square_fp_secp256r1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fp element to square, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x² mod p` in the P-256 base field. |
+
+#### Example
+
+```rust
+let sq = zisklib::square_fp_secp256r1(&x_limbs);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Scalar field (Fn)
+
+Arithmetic modulo the P-256 group order `n`. Scalars live here:
+private keys, ECDSA `r` and `s` components, and exponents passed to
+the curve operations below.
+
+<FnPanel>
+
+<FnDef name="reduce_fn_secp256r1">
+
+Reduces a 256-bit integer modulo the P-256 scalar field order
+`n`.
+
+```rust
+pub fn reduce_fn_secp256r1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | 256-bit integer as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x mod n` in the P-256 scalar field. |
+
+#### Example
+
+```rust
+let reduced = zisklib::reduce_fn_secp256r1(&scalar);
+```
+
+</FnDef>
+
+<FnDef name="neg_fn_secp256r1">
+
+Negates `x` modulo the P-256 scalar field order `n`.
+
+```rust
+pub fn neg_fn_secp256r1(x: &[u64; 4], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Scalar field element as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `n - x mod n`. |
+
+#### Example
+
+```rust
+let neg_s = zisklib::neg_fn_secp256r1(&s);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Curve
+
+Affine point operations on P-256. Membership checks and
+multi-scalar multiplication compose Fp and Fn primitives, and feed
+directly into the ECDSA verifier below.
+
+<FnPanel>
+
+<FnDef name="is_on_curve_secp256r1">
+
+Returns `true` if the point `p` satisfies y² = x³ + a·x + b
+(P-256 curve equation). Assumes `p` is not the point at infinity.
+
+```rust
+pub fn is_on_curve_secp256r1(p: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | Affine point encoded as x ++ y, each 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if `p` satisfies the P-256 curve equation, `false` otherwise. |
+
+#### Example
+
+```rust
+assert!(zisklib::is_on_curve_secp256r1(&point));
+```
+
+</FnDef>
+
+<FnDef name="triple_scalar_mul_with_g_secp256r1">
+
+Computes r·G + s·p + t·q on P-256. Assumes `r,s,t ∈ [1, N-1]`
+and that `p,q != 𝒪`. Returns `None` if the result is the point
+at infinity.
+
+```rust
+pub fn triple_scalar_mul_with_g_secp256r1(
+    r: &[u64; 4],
+    s: &[u64; 4],
+    t: &[u64; 4],
+    p: &[u64; 8],
+    q: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Option<[u64; 8]>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `r` | `&[u64; 4]` | Scalar for the P-256 generator G. |
+| `s` | `&[u64; 4]` | Scalar for point `p`. |
+| `t` | `&[u64; 4]` | Scalar for point `q`. |
+| `p` | `&[u64; 8]` | First user-supplied P-256 point. |
+| `q` | `&[u64; 8]` | Second user-supplied P-256 point. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Option<[u64; 8]>` | `Some([u64; 8])` with the resulting point, or `None` if the result is the point at infinity. |
+
+#### Example
+
+```rust
+let result = zisklib::triple_scalar_mul_with_g_secp256r1(
+    &r, &s, &t, &p, &q,
+).expect("result is point at infinity");
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## ECDSA
+
+Signature verification on P-256. The verifier reduces the message
+hash and signature components in Fn, performs the multi-scalar
+multiplication on the curve, and checks the resulting x-coordinate
+against `r` mod `n`.
+
+<FnPanel>
+
+<FnDef name="ecdsa_verify_secp256r1">
+
+Verifies an ECDSA signature `(r, s)` over message hash `z` with
+public key `pk` on the P-256 curve.
+
+```rust
+pub fn ecdsa_verify_secp256r1(
+    pk: &[u64; 8],
+    z: &[u64; 4],
+    r: &[u64; 4],
+    s: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `pk` | `&[u64; 8]` | P-256 public key as an affine point (x ++ y limbs). |
+| `z` | `&[u64; 4]` | Message hash as 4 LE limbs. |
+| `r` | `&[u64; 4]` | Signature r component as 4 LE limbs. |
+| `s` | `&[u64; 4]` | Signature s component as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if the P-256 ECDSA signature is valid, `false` otherwise. |
+
+#### Example
+
+```rust
+let valid = zisklib::ecdsa_verify_secp256r1(&pk, &msg_hash, &r, &s);
+assert!(valid);
+```
+
+</FnDef>
+
+</FnPanel>
+
+## See also
+
+- [secp256k1](/references/zisk-os/zisklib/secp256k1): full ECC surface (Schnorr, MSM, extra field ops).
+- [secp256r1 precompile](/references/zisk-os/precompiles/secp256r1): underlying precompile that powers these wrappers.
+- [zisklib](/references/zisk-os/zisklib): index of all zk-accelerated wrappers.

@@ -1,0 +1,295 @@
+---
+id: data-types
+title: Data types
+sidebar_position: 8
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Shared message types referenced by multiple
+  coordinator RPCs.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Reference for message types and enums that appear in more than
+one RPC: `Proof`, `ProofKind`, `JobPhase`, `JobStatus`,
+`JobFailure`, `ExecutionStats`, `CostPerType`, `InputKind`, and
+`InputChunk`. Per-RPC request/response shapes live with their
+RPC pages.
+
+</Summary>
+
+## Proof
+
+```proto
+message Proof {
+  string                    proof_id         = 1; // UUID
+  string                    hash_id          = 2;
+  bytes                     verification_key = 3;
+  ProofKind                 proof_kind       = 4;
+  bytes                     data             = 5;
+  bytes                     public_inputs    = 6;
+  google.protobuf.Timestamp started_at       = 7;
+  google.protobuf.Timestamp completed_at     = 8;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `proof_id` | `string` | UUID v4 generated when the proof was produced. |
+| `hash_id` | `string` | Content hash of the guest program this proof attests to. |
+| `verification_key` | `bytes` | The verification key needed to check this proof. |
+| `proof_kind` | [`ProofKind`](#proofkind) | The format of `data`. |
+| `data` | `bytes` | The raw proof bytes. Format depends on `proof_kind`. |
+| `public_inputs` | `bytes` | The public inputs / outputs the guest committed. |
+| `started_at` | `Timestamp` | When proof generation began on a worker. |
+| `completed_at` | `Timestamp` | When proof generation finished. |
+
+`Proof` is the unit returned by `Prove` and `Wrap`, and the
+input to `Wrap`. It is fully self-contained: verifying it does
+not require contacting the coordinator.
+
+The Rust SDK's [`Proof`](/references/zisk-sdk/proof) wraps this
+on-the-wire shape with helpers for verification and serialisation.
+
+---
+
+## ProofKind
+
+```proto
+enum ProofKind {
+  PROOF_KIND_UNSPECIFIED   = 0;
+  PROOF_KIND_STARK         = 1;
+  PROOF_KIND_STARK_MINIMAL = 2;
+  PROOF_KIND_PLONK         = 3;
+}
+```
+
+| Variant | Maps to (SDK) | Description |
+| ------- | ------------- | ----------- |
+| `PROOF_KIND_UNSPECIFIED` | (none) | Default zero value. Must not be used in requests. |
+| `PROOF_KIND_STARK` | `VadcopFinal` | Default STARK output. Largest size, fastest to generate. |
+| `PROOF_KIND_STARK_MINIMAL` | `VadcopFinalMinimal` | A STARK wrapped over `STARK`. Smaller; suitable for off-chain distribution. |
+| `PROOF_KIND_PLONK` | `Plonk` | SNARK-wrapped proof. Constant size, EVM-verifiable on-chain. |
+
+Choosing a kind is a trade-off between proving cost and proof
+shape. `STARK` is what `Prove` produces directly and is the
+cheapest path; the two wrap targets are progressively more
+expensive to produce but progressively more compact and
+easier to verify in restricted environments (off-chain
+distribution, on-chain verification). See
+[Proof format](/developer/proving-programs/proof-format) for
+the full discussion.
+
+Wrapping rules ([`WrapRequest.proof_dest`](./job-request#wrap)):
+
+- `STARK` → `STARK_MINIMAL` ✅
+- `STARK` → `PLONK` ✅
+- `STARK_MINIMAL` → `PLONK` ✅
+- Anything → `STARK` ❌ (a wrap *into* `STARK` is invalid)
+
+Invalid conversions return `INVALID_PROOF_CONVERSION` (1005).
+
+---
+
+## JobPhase
+
+```proto
+enum JobPhase {
+  JOB_PHASE_UNSPECIFIED   = 0;
+  JOB_PHASE_CONTRIBUTIONS = 1; // witness generation and partial contributions
+  JOB_PHASE_PROVE         = 2; // proof generation
+  JOB_PHASE_AGGREGATE     = 3; // proof aggregation
+}
+```
+
+Reported in `JobStatusRunning.phase` (when `WaitJobResult`
+returns mid-job) and in
+[`JobEventProgress.phase`](./watch-job#progress).
+
+| Phase | What happens in it |
+| ----- | ------------------ |
+| `CONTRIBUTIONS` | Workers execute the guest, build witnesses, and emit partial contributions. |
+| `PROVE` | Per-segment STARK proofs are generated. |
+| `AGGREGATE` | The coordinator stitches segment proofs into a single proof using the recursion tree. |
+
+The phases are sequential within a single job; you should not
+see `AGGREGATE` reported before `PROVE`.
+
+---
+
+## JobStatus
+
+```proto
+message JobStatus {
+  oneof status {
+    JobStatusQueued          queued            = 1;
+    JobStatusRunning         running           = 2;
+    JobStatusWaitingForInput waiting_for_input = 3;
+    JobStatusCompleted       completed         = 4;
+    JobStatusFailed          failed            = 5;
+    JobStatusCancelled       cancelled         = 6;
+  }
+}
+
+message JobStatusQueued          {}
+message JobStatusRunning         { optional JobPhase phase = 1; }
+message JobStatusWaitingForInput {}
+message JobStatusCompleted       {}
+message JobStatusFailed          { JobFailure failure = 1; }
+message JobStatusCancelled       {}
+```
+
+The state machine for any job:
+
+![Diagram: * · * · * · *](/diagrams/svgs/49-api-data-types-1.svg)
+
+`Completed`, `Failed`, and `Cancelled` are terminal. Once
+terminal, the status is immutable.
+
+See [WaitJobResult](./wait-job-result#jobstatus-values) for
+typical loop logic.
+
+---
+
+## JobFailure
+
+```proto
+message JobFailure {
+  oneof kind {
+    JobFailureTimeout   timeout   = 1;
+    JobFailureInput     input     = 2;
+    JobFailureExecution execution = 3;
+    JobFailureInternal  internal  = 4;
+    JobFailureCancelled cancelled = 5;
+  }
+}
+
+message JobFailureTimeout   {
+  optional JobPhase        phase = 1;
+  google.protobuf.Duration limit = 2;
+}
+message JobFailureInput     { string reason   = 1; }
+message JobFailureExecution { string reason   = 1; }
+message JobFailureInternal  { string trace_id = 1; }
+message JobFailureCancelled {}
+```
+
+| Variant | Cause | What to do |
+| ------- | ----- | ---------- |
+| `timeout` | The job exceeded its `proof_timeout` / `wrap_timeout` / `execute_timeout`. `phase` (if set) reports which sub-stage was running when the timeout fired. | Either resubmit with a longer timeout or investigate why the job is slow. |
+| `input` | The supplied input was malformed or could not be consumed by the guest. `reason` is human-readable. | Fix the input and resubmit. |
+| `execution` | The guest program panicked, hit an unsupported instruction, or otherwise failed to execute. `reason` is human-readable. | Fix the guest. |
+| `internal` | The coordinator hit an internal error. The wire type carries a `trace_id` field, but the current coordinator build has no code path that actually constructs `DomainJobFailure::Internal { trace_id }` (only encode/decode plumbing exists in `coordinator-api/src/grpc.rs`). Treat this variant as forward-looking: clients should handle it gracefully but should not expect to receive it on the current build. | If this variant does appear, inspect coordinator logs at `ERROR` level around the failure time. File an issue if it persists. |
+| `cancelled` | The job was cancelled via [`CancelJob`](./cancel-job). | No action; this is an expected terminal for cancelled jobs. |
+
+`JobFailure` appears on `JobStatusFailed` and on
+[`JobEventFailed`](./watch-job#failed).
+
+---
+
+## ExecutionStats
+
+```proto
+message ExecutionStats {
+  uint64      steps          = 1;
+  uint64      duration_nanos = 2;
+  CostPerType cost_per_type  = 3;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `steps` | `uint64` | Total executed steps in the guest run. |
+| `duration_nanos` | `uint64` | Wall-clock duration of execution (or proving) on the worker. |
+| `cost_per_type` | [`CostPerType`](#costpertype) | Step-count breakdown by component. |
+
+Returned in `ProveResponse.stats` and `ExecuteResponse.stats`.
+Useful for capacity planning and for spotting hot regions in
+the guest.
+
+`ExecutionStats` is only populated on jobs that actually
+executed the guest, `prove` and `execute`. `setup` jobs
+return a `SetupResponse` with no stats, and `wrap` jobs
+return a `WrapResponse` with no stats (wrap rebuilds proof
+shape, not execution). If you need runtime numbers for a
+program before paying for a full proof, run an `execute` job.
+
+---
+
+## CostPerType
+
+```proto
+message CostPerType {
+  uint64 main       = 1;
+  uint64 opcode     = 2;
+  uint64 memory     = 3;
+  uint64 precompile = 4;
+  uint64 tables     = 5;
+  uint64 other      = 6;
+}
+```
+
+Step-count attribution. Each field is the number of steps
+charged to that subsystem during execution. The categories line
+up with the ZisK chip system; see
+[Chips](/intro/deep/chips) for the architectural background.
+
+The fields sum (approximately) to `ExecutionStats.steps`. A
+disproportionate value in `precompile` or `memory` is a
+typical signal that the guest can be made cheaper by
+restructuring the workload, for example reducing memory traffic or
+swapping a hand-rolled hash for a precompile-backed one. `other`
+captures any subsystem not represented by the named fields and
+is normally close to zero; a non-trivial value there usually
+means the version of the coordinator is newer than this
+reference and a category was added upstream.
+
+---
+
+## InputKind
+
+```proto
+message InputKind {
+  oneof kind {
+    InputChunk inline     = 1; // first chunk; use PushJobInput for additional chunks
+    string     stream_uri = 2; // file:// unix:// quic://
+  }
+}
+```
+
+| Variant | Use when |
+| ------- | -------- |
+| `inline` | The input fits in one gRPC message (or you'll push the rest with [`PushJobInput`](./streaming-input)). |
+| `stream_uri` | The input is on shared storage or a streaming endpoint the coordinator can reach. Schemes: `file://`, `unix://`, `quic://`. |
+
+The same shape applies to hints, in `ProveRequest.hints` and
+`ExecuteRequest.hints`.
+
+---
+
+## InputChunk
+
+```proto
+message InputChunk {
+  bytes data = 1;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `data` | `bytes` | Raw bytes appended to the input or hints buffer. |
+
+`InputChunk` is the unit pushed by
+[`PushJobInput`](./streaming-input) and `PushJobHintsInput`,
+and the payload of `InputKind.inline`.
+
+## See also
+
+- [JobRequest](./job-request): uses `ProofKind`, `InputKind`,
+  `Proof`.
+- [WatchJob](./watch-job): uses `JobPhase`, `JobFailure`.
+- [Errors](./errors): error codes that complement
+  `JobFailureInternal.trace_id`.

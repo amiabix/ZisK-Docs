@@ -1,0 +1,366 @@
+---
+id: profiling
+sidebar_position: 5
+title: Profiling your program
+description: Trace execution and measure cost to identify bottlenecks
+  and verify I/O before running the full prover.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Profile a ZisK guest with three tools that narrow in on the bottleneck: inline cost markers, summarized reports, and a complete call-stack flamegraph. By the end you see which operations drive cost and where to optimize.
+
+</Summary>
+
+## Why profiling matters
+
+Proving is expensive. A program that runs in milliseconds natively can take minutes to prove if it was not written with the zkVM in mind.
+
+Profiling shows where the cost goes before you commit to a full proving run. The earlier in development you measure, the cheaper it is to fix.
+
+:::warning **Profiling cost** and **final cost** are not the same thing
+
+Optimizing by profiling cost does not guarantee a proportional
+reduction in proving cost, but it is strongly recommended before
+moving to real costs.
+
+- **Profiling cost** are the direct operational costs of your code,
+calculated using the optimal cost per operation. They scale
+proportionally with your changes, making them the right signal
+during optimization: every improvement is immediately reflected in
+the numbers.
+
+- **Proving cost** depend on how the prover allocates resources at runtime
+and cannot be predicted from profiling alone. A single extra
+operation can push past an instance boundary and double that
+component's cost. Use profiling costs to optimize, and real costs
+to size your proving run.
+
+:::
+
+---
+
+## Profiling a guest program
+
+This section profiles a guest that hashes a fixed `N` indices into SHA-256 leaves and reduces them into a Merkle root. You apply the three profiling tools in sequence; each one builds on what the previous one revealed.
+
+### Creating the project
+
+Scaffold the project with `cargo-zisk`. The CLI clones the standard ZisK template and wires the workspace, toolchain, and dependencies in one step:
+
+```zisk-bash title="bash"
+cargo-zisk new merkle-tree
+cd merkle-tree
+```
+
+The template lays out a `guest/` crate where the ZisK program lives and a `common/` crate for shared types and logic.
+
+Open `common/src/lib.rs` and write the shared Merkle-tree logic:
+
+```rust title="common/src/lib.rs"
+pub use sha2::{Digest, Sha256};
+
+pub type Hash = [u8; 32];
+
+pub fn merkle_root(mut leaves: Vec<Hash>) -> Hash {
+
+    while leaves.len() > 1 {
+        leaves = leaves
+            .chunks(2)
+            .map(|p| {
+                let mut h = Sha256::new();
+                h.update(p[0]);
+                h.update(p.get(1).unwrap_or(&p[0]));
+                h.finalize().into()
+            })
+            .collect();
+    }
+    leaves[0]
+}
+```
+
+Open `guest/src/main.rs` and write the program. It hashes each leaf index with SHA-256 to produce `N` leaves, then reduces them into a single Merkle root:
+
+```rust title="guest/src/main.rs"
+#![no_main]
+ziskos::entrypoint!(main);
+
+use common::{merkle_root, Hash, Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    let n: u64 = 1024;
+
+    let leaves: Vec<Hash> = (1..=n)
+        .map(|i| Sha256::digest(i.to_le_bytes()).into())
+        .collect();
+
+    let root = merkle_root(leaves);
+
+    io::commit_slice(&root);
+
+    println!("Merkle root for {} leaves: {}", n, hex::encode(root));
+
+}
+```
+
+Build and run it once to confirm the logic is correct before profiling:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk run
+```
+
+### Using inline cost markers
+
+Before reaching for heavier tools, wrap the regions of interest with `profile_report_start!` and `profile_report_end!` markers.
+
+The macros are exported from `ziskos::profile`. They are re-exported at the crate root, so a guest with `use ziskos::*;` already has them available; otherwise import them directly with `use ziskos::profile::*;`.
+
+When the program exits, the cost of each named region is printed to stdout. That single table is often enough to point at the section that deserves a closer look.
+
+Open `guest/src/main.rs` and wrap the two phases of the program:
+
+```rust title="guest/src/main.rs"
+#![no_main]
+ziskos::entrypoint!(main);
+
+use common::{merkle_root, Hash};
+use sha2::{Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    let n: u64 = 1024;
+
+    profile_report_start!(PREPARE_LEAVES);
+    let leaves: Vec<Hash> = (1..=n as u64)
+        .map(|i| Sha256::digest(i.to_le_bytes()).into())
+        .collect();
+    profile_report_end!(PREPARE_LEAVES);
+
+    profile_report_start!(COMPUTE_ROOT);
+    let root = merkle_root(leaves);
+    profile_report_end!(COMPUTE_ROOT);
+
+    io::commit_slice(&root);
+
+    println!("Merkle root for {} leaves: {}", n, hex::encode(root));
+
+}
+```
+
+Rebuild and run:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk run --release
+```
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║  ◆ REPORT SUMMARY                                                                                                    ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║  STEPS                                                                                                   13,343,054  ║
+║  COST                                                                                                 1,804,351,344  ║
+║  RAM                                                                                            0.06 MB / 507.75 MB  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║  ◆ COST DISTRIBUTION SUMMARY                                                                                         ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║  CATEGORY                                                                                               COST      %  ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  Base         █████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     293,601,280  16.3%  ║
+║  Main         ███████████████████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     907,327,672  50.3%  ║
+║  Opcodes      ███████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     530,340,209  29.4%  ║
+║  Precompiles  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░         554,090   0.0%  ║
+║  Memory       ███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░      72,528,093   4.0%  ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  Total                                                                                         1,804,351,344 100.0%  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║  ◆ COST PROFILE TAGS                                                                                                 ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║  COMPUTE_ROOT   ███████████████████████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   1,010,658,015  56.0%  ║
+║  PREPARE_LEAVES █████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     498,817,057  27.6%  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+```
+
+`COMPUTE_ROOT` is more expensive than `PREPARE_LEAVES` and accounts for the majority of total cost.
+
+The markers tell us which section is expensive, not why. Running the summarized report gets us inside the box.
+
+### Obtaining a summarized report
+
+Run `cargo-zisk run` with `--profiling summary` to get a category-by-category cost breakdown plus per-opcode and top-function tables:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo-zisk run --profiling summary
+```
+
+```bash-profiling
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║  ◆ REPORT SUMMARY                                                                                                    ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║  STEPS                                                                                                   13,343,054  ║
+║  COST                                                                                                 1,804,351,344  ║
+║  RAM                                                                                            0.06 MB / 507.75 MB  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║  ◆ COST DISTRIBUTION SUMMARY                                                                                         ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║  CATEGORY                                                                                               COST      %  ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  Base         █████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     293,601,280  16.3%  ║
+║  Main         ███████████████████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     907,327,672  50.3%  ║
+║  Opcodes      ███████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░     530,340,209  29.4%  ║
+║  Precompiles  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░         554,090   0.0%  ║
+║  Memory       ███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░      72,528,093   4.0%  ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  Total                                                                                         1,804,351,344 100.0%  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║  ◆ COST DISTRIBUTION BY OPCODE                                            ║  ◆ OPS vs FROPS                          ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║  OPCODE                                                      COST      %  ║      OPS + FROPS           FROPS      %  ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  xor                      ██░░░░░░░░░░░░░░░░░░░░░     123,168,360   6.8%  ║      126,791,460       3,623,100   2.9%  ║
+║  or                       █░░░░░░░░░░░░░░░░░░░░░░     107,740,260   6.0%  ║      117,152,640       9,412,380   8.0%  ║
+║  srl_w                    █░░░░░░░░░░░░░░░░░░░░░░     104,350,428   5.8%  ║      109,452,950       5,102,522   4.7%  ║
+║  sll                      █░░░░░░░░░░░░░░░░░░░░░░      89,707,853   5.0%  ║      103,761,174      14,053,321  13.5%  ║
+║  add                      █░░░░░░░░░░░░░░░░░░░░░░      47,314,650   2.6%  ║       48,221,825         907,175   1.9%  ║
+║  and                      █░░░░░░░░░░░░░░░░░░░░░░      39,896,700   2.2%  ║       41,284,080       1,387,380   3.4%  ║
+║  signextend_w             ░░░░░░░░░░░░░░░░░░░░░░░      12,583,525   0.7%  ║       12,583,525               0   0.0%  ║
+║  srl                      ░░░░░░░░░░░░░░░░░░░░░░░       2,661,713   0.1%  ║        2,772,483         110,770   4.0%  ║
+║  signextend_b             ░░░░░░░░░░░░░░░░░░░░░░░       2,603,360   0.1%  ║        2,603,360               0   0.0%  ║
+║  dma_memcpy               ░░░░░░░░░░░░░░░░░░░░░░░         349,290   0.0%  ║                                          ║
+║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║  Total                                                530,894,299  29.4%  ║      566,036,142      35,141,843   6.2%  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+║  ◆ TOP COST FUNCTIONS                                                                                                ║
+╠══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+║   0 sha2::sha256::compress256                                           ████████████████░░░░   1,464,439,888  81.2%  ║
+║   1 sha2::sha256::soft::unroll::compress                                ████████████████░░░░   1,463,629,408  81.1%  ║
+║   2 common::merkle_root                                                 ███████████░░░░░░░░░   1,010,657,300  56.0%  ║
+║   3 memcpy                                                              ░░░░░░░░░░░░░░░░░░░░       1,295,509   0.1%  ║
+║   4 memset                                                              ░░░░░░░░░░░░░░░░░░░░         509,952   0.0%  ║
+║   5 <[u8; 32] as hex::ToHex>::encode_hex::<alloc::string::String>       ░░░░░░░░░░░░░░░░░░░░         214,975   0.0%  ║
+║   6 std::io::stdio::_print                                              ░░░░░░░░░░░░░░░░░░░░         166,730   0.0%  ║
+║   7 core::fmt::write                                                    ░░░░░░░░░░░░░░░░░░░░         149,994   0.0%  ║
+║   8 <std::..::Adapter<…> as core::fmt::Write>::write_str                ░░░░░░░░░░░░░░░░░░░░         118,419   0.0%  ║
+║   9 <std::..::LineWriterShim<…> as std::io::Write>::write_all           ░░░░░░░░░░░░░░░░░░░░         103,589   0.0%  ║
+║  10 <hex::BytesToHexChars as core::..::Iterator>::next                  ░░░░░░░░░░░░░░░░░░░░          86,313   0.0%  ║
+║  11 <std::io::buffered::bufwriter::BufWriter<…>>::flush_buf             ░░░░░░░░░░░░░░░░░░░░          41,530   0.0%  ║
+║  12 sys_write                                                           ░░░░░░░░░░░░░░░░░░░░          39,791   0.0%  ║
+║  13 core::slice::memchr::memrchr                                        ░░░░░░░░░░░░░░░░░░░░          37,917   0.0%  ║
+║  14 <usize as core::fmt::Display>::fmt                                  ░░░░░░░░░░░░░░░░░░░░          29,236   0.0%  ║
+║  15 ziskos::io::commit_slice                                            ░░░░░░░░░░░░░░░░░░░░          27,681   0.0%  ║
+║  16 <alloc::string::String as core::fmt::Display>::fmt                  ░░░░░░░░░░░░░░░░░░░░          22,658   0.0%  ║
+║  17 <str as core::fmt::Display>::fmt                                    ░░░░░░░░░░░░░░░░░░░░          21,970   0.0%  ║
+║  18 <core::fmt::Formatter>::pad                                         ░░░░░░░░░░░░░░░░░░░░          21,502   0.0%  ║
+║  19 <core::fmt::Formatter>::pad_integral                                ░░░░░░░░░░░░░░░░░░░░          19,669   0.0%  ║
+║  20 __rustc::__rust_alloc                                               ░░░░░░░░░░░░░░░░░░░░          17,784   0.0%  ║
+║  21 <…>::initialize::<…>                                                ░░░░░░░░░░░░░░░░░░░░           7,830   0.0%  ║
+║  22 <usize>::_fmt_inner                                                 ░░░░░░░░░░░░░░░░░░░░           7,027   0.0%  ║
+║  23 <…>::reserve::do_reserve_and_handle::<alloc::alloc::Global>         ░░░░░░░░░░░░░░░░░░░░           6,011   0.0%  ║
+║  24 <std::..::Once>::call::<<…>::call_once_force<…>::{closure#0}>       ░░░░░░░░░░░░░░░░░░░░           5,448   0.0%  ║
+╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
+```
+
+#### Report summary
+
+The first box is a global snapshot of the execution:
+
+- **STEPS**: number of processor cycles executed. Proportional to how long the
+  program runs; doubling N should roughly double the step count.
+- **COST**: total profiling cost expressed in proof area units. This is the metric
+  to minimize: higher cost means longer proof generation.
+- **RAM**: heap memory used vs. total available. Only reported when using ZisK's
+  default bump allocator (which never frees memory and avoids heap-management overhead).
+
+#### Cost distribution summary
+
+The second box breaks cost into five categories:
+
+| Category      | What it measures  |
+|---------------|-------------------|
+| **Base**      | Fixed overhead such as tables, range checks, and other constant components that exist regardless of program logic. |
+| **Main**      | Processor execution cost, directly proportional to STEPS. Reducing STEPS reduces Main. |
+| **Opcodes**   | Simple 64-bit operations (`a op b = c, flag`): arithmetic, bitwise, shifts. |
+| **Precompiles** | Complex operations whose parameters exceed 64 bits and use memory as an exchange channel |
+| **Memory**    | Direct memory reads/writes and the extra state machines needed for non-aligned or sub-8-byte accesses. |
+
+#### Cost by opcode summary
+
+The third box has two panels side by side. The left lists every opcode executed with its total cost and share.
+
+The right panel shows **FROPs** (Frequently-used OPerationS), common low-level patterns the emulator detects and pre-calculates.
+
+The **HIT %** column tells you how often each pattern matched. The FROPS total in the summary box is the cost that would be added if these optimizations did not exist; the savings are already baked into the numbers you see.
+
+#### Top cost functions
+
+The fourth box ranks guest functions by **cumulative cost**. Each entry includes the cost of every nested call it makes, not just its own instructions.
+
+This is the right lens for deciding where to optimize: a function with 60% cumulative cost is the root cause, even if its own instructions are cheap.
+
+#### Summarized report conclusions
+
+Three things stand out:
+
+- **Precompiles are at 0.0%.** SHA-256 runs entirely as plain opcodes, with no native acceleration.
+- **`sha2::compress256` tops the cost functions** at 81.2%. The hash computation dominates total cost.
+- **The opcode table is dominated by SHA-256 operations.** `xor`, `or`, `srl_w`, `sll`, and `and` together account for the bulk of opcode cost, all characteristic of the SHA-256 round function.
+
+The conclusion is already clear: SHA-256 needs to be replaced with a precompile-backed implementation. The next page covers exactly that.
+
+If you want to understand the full call structure first, which paths reach `compress256` and from where, the call-stack view shows it in depth.
+
+### Exploring the call stack
+
+The summarized report named `sha2::compress256` as the dominant cost driver, but it cannot show how execution reaches it, or whether heap allocation is compounding the pressure.
+
+The call-stack view traces exactly how execution flows into each hot spot. Generate it with:
+
+```zisk-bash title="bash"
+cargo-zisk run --profiling complete
+```
+
+This writes `complete-report.json.gz` to the current directory. Open it at [profiler.firefox.com](https://profiler.firefox.com) via **Load a profile from file** and select the file. Firefox is recommended for large profiles.
+
+- **Call stack (top-down)** lets you understand cost in terms of
+  entry calls: starting from `main`, you can follow exactly which
+  calls are responsible for the cost at each level. The flamegraph
+  visualises this as nested bars, each proportional to the cost
+  accumulated through that entry path.
+
+- **Inverted call stack (bottom-up)** flips the perspective: instead
+  of following calls down, it ranks leaf functions by cost.
+  `sha2::compress256` surface immediately at the top as it is called in
+  both phases we've profiled.
+
+The call stack leaves no ambiguity: `compress256` is the single bottleneck, reached through both the leaf-hashing and tree-reduction phases. The next step is replacing it with a native precompile.
+
+## Summary
+
+You have profiled a real guest from first marker to full call stack. You know which operations drove cost in the merkle-tree example, and you have the data to act on.
+
+The same three-step workflow applies to any guest: mark the expensive regions with macros, confirm with the summarized report, trace through the call stack when the summary needs context.
+
+---
+
+## Where this picks up
+
+With the bottlenecks identified, the next step is to eliminate them:
+
+- [Optimizing your program](./libraries): apply a patched crate or replace call sites with `zisklib` wrappers to route expensive operations through ZisK native precompiles.

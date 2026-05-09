@@ -1,0 +1,269 @@
+---
+id: job-request
+title: JobRequest
+sidebar_position: 3
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Submit a setup, prove, wrap, or execute job. Returns a
+  job_id immediately.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Submits a new job to the coordinator. The RPC returns
+immediately with a `job_id`. It does **not** wait for the job
+to complete. To observe progress or retrieve the result, follow
+up with [`WaitJobResult`](./wait-job-result) or
+[`WatchJob`](./watch-job).
+
+</Summary>
+
+## Signature
+
+```proto
+rpc JobRequest(JobRequestMessage) returns (JobResponse);
+```
+
+| Property | Value |
+| -------- | ----- |
+| Direction | Unary |
+| Idempotent | No (every call creates a new job) |
+| Streams | None |
+
+## Request
+
+```proto
+message JobRequestMessage {
+  JobKind job_kind = 1;
+}
+
+message JobKind {
+  oneof kind {
+    SetupRequest   setup   = 1;
+    ProveRequest   prove   = 2;
+    WrapRequest    wrap    = 3;
+    // tag 4 is reserved
+    ExecuteRequest execute = 5;
+  }
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_kind.kind` | `oneof` | Exactly one of `setup`, `prove`, `wrap`, `execute`. See sections below. |
+
+The tag gap at `4` is deliberate. Protobuf field tags are part of the
+on-the-wire format, so the slot is held back rather than reassigned in
+case it ever needs to be repurposed. Clients should never see a `JobKind`
+with tag `4` populated.
+
+At a glance:
+
+| Kind | What it does | Typical cost | Required first |
+| ---- | ------------ | ------------ | -------------- |
+| `setup` | Derives proving + verification keys for a program. | Seconds to minutes; one-off per `(hash_id, with_hints)`. | Program registered. |
+| `prove` | Generates a proof of a guest run on given input. | The dominant cost. | Setup completed. |
+| `wrap` | Converts an existing proof into a smaller / EVM-friendly format. | Much cheaper than `prove`; operates on an existing proof, not a re-execution. | A source `Proof`. |
+| `execute` | Runs the guest without proving and returns its public outputs and stats. | Roughly the cost of guest execution alone, far cheaper than `prove`. | Program registered. |
+
+## Response
+
+```proto
+message JobResponse {
+  string job_id = 1; // UUID
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_id` | `string` | UUID v4. The handle for every later RPC concerning this job. |
+
+The `job_id` is generated server-side. The job enters the
+`Queued` state as soon as this RPC returns; workers may pick it
+up immediately.
+
+---
+
+## Setup
+
+Derive the proving and verification keys for a registered guest
+program. Must complete successfully before the first `Prove` or
+`Execute` of that program will succeed.
+
+```proto
+message SetupRequest {
+  string hash_id      = 1;
+  bool   with_hints   = 2;
+  string program_name = 3;
+}
+
+message SetupResponse {
+  bytes vk = 1;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `hash_id` | `string` | Program hash returned by [`RegisterGuestProgram`](./register-guest-program). |
+| `with_hints` | `bool` | If `true`, prepares the proving keys for hint-accelerated witness generation. Set to match how you'll call `Prove`. |
+| `program_name` | `string` | Human-readable label for the program. Used by the coordinator for logging and lookup; does not affect the derived keys. |
+
+`SetupResponse.vk` is the verification key the coordinator
+derived. Capture it if you intend to verify proofs without
+calling back to the coordinator.
+
+Setup is expensive (seconds to minutes depending on program
+size) but is a one-time cost per `(hash_id, with_hints)` pair.
+Subsequent setups for the same combination are cheap no-ops on
+the server.
+
+---
+
+## Prove
+
+Generate a proof for a guest program on a given input.
+
+```proto
+message ProveRequest {
+  string                              hash_id       = 1;
+  InputKind                           input         = 2;
+  optional google.protobuf.Timestamp  proof_timeout = 3;
+  ProofKind                           proof_dest    = 4;
+  optional InputKind                  hints         = 5;
+}
+
+message ProveResponse {
+  Proof          proof = 1;
+  ExecutionStats stats = 2;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `hash_id` | `string` | Program to prove. Must have a completed `Setup`. |
+| `input` | [`InputKind`](./data-types#inputkind) | Either an inline first chunk + later `PushJobInput` chunks, or a `stream_uri` for the coordinator to pull from. |
+| `proof_timeout` | `Timestamp` (optional) | Absolute server-side deadline. The job is failed with [`JobFailureTimeout`](./data-types#jobfailure) if not complete by this time. |
+| `proof_dest` | [`ProofKind`](./data-types#proofkind) | Output format: `STARK`, `STARK_MINIMAL`, or `PLONK`. |
+| `hints` | [`InputKind`](./data-types#inputkind) (optional) | Pre-computed hints that accelerate witness generation. Only meaningful when the program was set up with `with_hints=true`. |
+
+The returned [`Proof`](./data-types#proof) carries the proof
+bytes, public inputs, verification key, and timing metadata.
+[`ExecutionStats`](./data-types#executionstats) reports steps
+executed and per-component cost.
+
+---
+
+## Wrap
+
+Wrap an existing proof into a different format, typically
+`STARK_MINIMAL` (smaller, off-chain distribution) or `PLONK`
+(SNARK-wrapped, EVM-verifiable).
+
+```proto
+message WrapRequest {
+  Proof                              proof        = 1;
+  ProofKind                          proof_dest   = 2;
+  optional google.protobuf.Timestamp wrap_timeout = 3;
+}
+
+message WrapResponse {
+  Proof proof = 1;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `proof` | [`Proof`](./data-types#proof) | Source proof. Must be a `STARK` (full VadcopFinal). |
+| `proof_dest` | [`ProofKind`](./data-types#proofkind) | Target format. Must be `STARK_MINIMAL` or `PLONK`. Wrapping to `STARK` is invalid. |
+| `wrap_timeout` | `Timestamp` (optional) | Absolute server-side deadline. |
+
+Wrapping is significantly cheaper than proving. It operates on
+an already-generated proof rather than re-running execution.
+
+---
+
+## Execute
+
+Run the guest program without generating a proof. Returns the
+public outputs and execution statistics.
+
+```proto
+message ExecuteRequest {
+  string                              hash_id         = 1;
+  InputKind                           input           = 2;
+  optional google.protobuf.Timestamp  execute_timeout = 3;
+  optional InputKind                  hints           = 4;
+}
+
+message ExecuteResponse {
+  ExecutionStats stats          = 1;
+  bytes          public_outputs = 2;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `hash_id` | `string` | Program to execute. Setup is **not** required for execute-only jobs. |
+| `input` | [`InputKind`](./data-types#inputkind) | Inline or streamed input. |
+| `execute_timeout` | `Timestamp` (optional) | Absolute server-side deadline. |
+| `hints` | [`InputKind`](./data-types#inputkind) (optional) | Same as on `ProveRequest`. |
+
+Use this RPC to test program behaviour, measure step counts, or
+sanity-check inputs without paying the full cost of proving.
+
+---
+
+## Result envelope
+
+When a job completes, its result is returned wrapped in
+`JobKindResponse`:
+
+```proto
+message JobKindResponse {
+  oneof kind {
+    SetupResponse   setup   = 1;
+    ProveResponse   prove   = 2;
+    WrapResponse    wrap    = 3;
+    ExecuteResponse execute = 4;
+  }
+}
+```
+
+The variant present in `JobKindResponse` always matches the
+variant submitted in `JobKind`: a `setup` job produces
+`JobKindResponse.setup`, a `prove` job produces
+`JobKindResponse.prove`, and so on. Clients can switch on the
+original request kind to know which arm of the envelope to
+read; there is no need to inspect the response oneof first.
+
+This envelope appears in
+[`WaitJobResultResponse.result`](./wait-job-result) and
+[`JobEventCompleted.result`](./watch-job), and is only
+populated when the job reached the `Completed` state. Failed
+or cancelled jobs carry their reason in
+[`JobFailure`](./data-types#jobfailure) instead.
+
+## Errors
+
+| gRPC status | Error | When |
+| ----------- | ----- | ---- |
+| `NotFound` | `PROGRAM_NOT_FOUND` (1002) | `hash_id` is unknown. Call [`RegisterGuestProgram`](./register-guest-program) first. |
+| `NotFound` | `PROGRAM_NOT_SETUP` (1003) | Program is registered but `Setup` has not completed. Submit a `SetupRequest`. |
+| `InvalidArgument` | `INVALID_PROOF_CONVERSION` (1005) | `WrapRequest.proof_dest` requests a conversion that isn't supported (e.g. wrap to `STARK`). |
+| `Unavailable` | `CLUSTER_UNAVAILABLE` (2001) | No workers are connected, or workers are mid-setup. Retry. |
+| `Internal` | `INTERNAL` (3001) | Server-side failure. Inspect coordinator logs at `ERROR` level around the failure time; the on-wire status does not carry a `trace_id` in the current build. |
+
+See [Errors](./errors) for the full table.
+
+## See also
+
+- [WaitJobResult](./wait-job-result): block until the job is
+  done.
+- [WatchJob](./watch-job): stream events as the job progresses.
+- [PushJobInput / PushJobHintsInput](./streaming-input): for
+  jobs that send inputs in multiple chunks.
+- [Data types](./data-types): `Proof`, `ProofKind`,
+  `ExecutionStats`, `InputKind`.

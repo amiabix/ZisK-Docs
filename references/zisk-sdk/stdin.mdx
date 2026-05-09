@@ -1,0 +1,499 @@
+---
+id: stdin
+title: ZiskStdin
+sidebar_position: 2
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Host-side input buffer the guest reads sequentially during execution. Fully-buffered alternative to ZiskStream.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`ZiskStdin` is the host-side buffer that holds a guest's input. The host writes typed values into it before submitting the job; the guest reads them back in order with `io::read::<T>()` or `io::read_input_slice()`. Fully-buffered: every byte is staged before proving begins.
+
+</Summary>
+
+## What ZiskStdin is
+
+A guest program does not see file paths, environment variables, or stdin in the OS sense. Its only input is whatever the host wrote into a `ZiskStdin` (or a `ZiskStream`) before submitting the prove call.
+
+`ZiskStdin` is the simpler of the two carriers. It owns an in-memory buffer that the host fills up front; nothing is sent over the wire while the host is filling it. When the prove call runs, the entire buffer is handed to the guest, which consumes it sequentially.
+
+The streaming counterpart is [`ZiskStream`](./stream). It has the same surface for the guest but ships frames live over a transport. Use `ZiskStdin` for fully-known inputs and `ZiskStream` when input arrives incrementally.
+
+## Internal layout
+
+`ZiskStdin` is a thin newtype wrapper over a shared, mutex-protected inner state:
+
+```rust
+pub struct ZiskStdin(/* opaque */);
+
+// Internally, roughly:
+struct Inner {
+    data:   Mutex<Vec<u8>>,
+    cursor: Mutex<Cursor<Vec<u8>>>,
+}
+```
+
+Two consequences follow from that layout:
+
+- **Interior mutability.** Every method takes `&self` rather than `&mut self`. You can call `write` or `read` from multiple references to the same instance without an exclusive borrow chain. The `Mutex` serialises concurrent access.
+- **Clones share state.** `ZiskStdin: Clone` is a `Arc::clone` under the hood. Cloning is cheap (pointer-sized), but writes to one clone are visible to every other clone, and the read cursor is shared too. Use clones to hand the same buffer to multiple producer tasks; do not use them to fork an independent input vector. To start fresh, build a new `ZiskStdin::new()` instead.
+
+The `data` mutex stores the canonical frame bytes that get shipped to the prover. The `cursor` mutex tracks the current read position for the host-side `read` / `read_bytes` methods. The two are kept in sync by `write` / `write_slice` (each append updates both); `clear` resets both; `rewind` / `reset` only move the cursor.
+
+## End-to-end flow
+
+A run with `ZiskStdin` has three sides that have to agree. The host writes; the guest reads; serialization handles the bytes in between.
+
+1. **Host writes.** Build a `ZiskStdin`, call `.write(&value)` for each piece in the order the guest expects, and pass it to `client.prove(...)` or `client.execute(...)`. Each `.write` appends one length-prefixed frame to the buffer.
+2. **Bincode encodes.** `.write` serialises with `bincode`; `.write_slice` skips serialisation and stores raw bytes. The frame format is identical either way (8-byte length + payload + 0–7 bytes padding to 8-byte alignment).
+3. **Guest reads.** Inside the zkVM, the guest calls `io::read::<T>()` to deserialise the next frame as `T`, or `io::read_input_slice()` to grab the next frame's payload as raw bytes. Reads must match writes in count, order, and type.
+
+A type or order mismatch panics on the guest at deserialisation. The host gets no warning; the failure shows up as a guest-side panic in execute or prove output.
+
+```rust
+// Host
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+stdin.write(&MyStruct { a: 1, b: 2 });
+
+// Guest
+let n: u64 = io::read();
+let s: MyStruct = io::read();
+```
+
+## When to use ZiskStdin
+
+`ZiskStdin` is the right default when the input is fully known before the prove call begins. CI runs, tests, single-shot prove invocations, fixed test vectors, batch-loaded payloads on disk: all good fits.
+
+Reach for [`ZiskStream`](./stream) instead when input arrives incrementally during the run, when the input is too large to materialise in memory at once, or when the prover should start consuming the first chunks while later chunks are still being produced.
+
+Both types implement `Into<InputSource>`, so swapping one for the other is a one-line change at the call site.
+
+## Frame format
+
+Each `write` on the host appends one frame to the buffer:
+
+| Field | Width | Description |
+|---|---|---|
+| Length | 8 bytes | Little-endian byte length of the payload. |
+| Payload | N bytes | Serialised data. |
+| Padding | 0–7 bytes | Zero bytes to align the next frame to an 8-byte boundary. |
+
+`write_slice` produces an identical frame; the only difference is that the payload bytes are passed through without bincode serialisation. The guest reads via `io::read_input_slice()` and receives the payload bytes only; the 8-byte header and any trailing padding are consumed transparently.
+
+The same layout is what `save` writes to disk and what `from_file` reads back. A buffer round-tripped through disk produces an identical sequence of frames in memory.
+
+## Bincode contract
+
+`read` and `write` use `bincode` for serialisation. The host's `T: Serialize` and the guest's `T: DeserializeOwned` must match exactly: same memory layout, same field order, same encoding rules. A type mismatch raises a deserialisation panic on the guest.
+
+For binary data already in its final shape (digests, compact encodings, externally-formatted blobs), prefer `write_slice` and `io::read_input_slice` to skip the bincode pass entirely.
+
+---
+
+## ZiskStdin::new
+
+Create a new empty buffer.
+
+```rust
+pub fn new() -> Self
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Self` | An empty stdin buffer, ready for writing. |
+
+The freshly-created buffer holds no frames and an `Arc::new` is allocated for the internal state. `ZiskStdin::default()` is equivalent. Use `new` when building input from scratch in code; reach for `from_bytes` or `from_file` when the input already exists in another form.
+
+#### Example
+
+```rust
+use zisk_sdk::ZiskStdin;
+
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+```
+
+---
+
+## ZiskStdin::from_bytes
+
+Wrap raw bytes as a single frame inside a fresh buffer.
+
+```rust
+pub fn from_bytes(bytes: Vec<u8>) -> Self
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `Vec<u8>` | Raw payload bytes to store as the buffer's first frame. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Self` | A stdin buffer containing the supplied bytes wrapped as one length-prefixed frame. |
+
+`from_bytes` is shorthand for `let s = ZiskStdin::new(); s.write_slice(&bytes); s`. The bytes are *not* treated as already-framed input. They are wrapped in the standard 8-byte length header plus alignment padding, exactly as a single `write_slice` call would produce.
+
+The guest reads them back with `io::read_input_slice()` and receives the original `bytes` payload (header and padding stripped automatically). Use this constructor when you already hold the payload in memory and want to skip the explicit `write_slice` step. To stage multiple frames, prefer `new` plus repeated `write` / `write_slice` calls.
+
+If the bytes you hold are already in the on-the-wire frame layout (typically because they came from another `ZiskStdin::save` and you loaded them yourself), use `ZiskStdin::from_file` instead, or feed them through whatever produced them rather than wrapping them again.
+
+#### Example
+
+```rust
+let payload = vec![0x01, 0x02, 0x03];
+let stdin = ZiskStdin::from_bytes(payload);
+
+// Equivalent to:
+let stdin2 = ZiskStdin::new();
+stdin2.write_slice(&[0x01, 0x02, 0x03]);
+```
+
+---
+
+## ZiskStdin::from_file
+
+Load a buffer from a binary file on disk.
+
+```rust
+pub fn from_file(path: impl AsRef<Path>) -> anyhow::Result<Self>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | `impl AsRef<Path>` | Path to the binary input file. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `anyhow::Result<Self>` | The loaded buffer, or an error if the file is missing or unreadable. |
+
+The file must contain bytes already in the frame layout described above (8-byte length headers + payloads + padding). The expected producer is `ZiskStdin::save`, which writes exactly that layout.
+
+The same file is what `cargo-zisk prove -i <path>` consumes, so a buffer saved from the SDK can be replayed from the CLI without conversion. Round-trips are byte-stable: `from_file(path)?` followed by `save(path)` produces an identical file.
+
+`from_file` does not validate frame headers up front. A truncated file or one written in an unrelated format reads cleanly until the first `read` / `read_bytes` call, which then surfaces an `io::Error` from the cursor. Validate the file at the source if early failure matters.
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::from_file("inputs/test-vector.bin")?;
+
+// Same buffer the CLI would consume:
+//   cargo-zisk prove -i inputs/test-vector.bin
+```
+
+---
+
+## ZiskStdin::read
+
+Read and deserialise the next frame from the buffer.
+
+```rust
+pub fn read<T: DeserializeOwned>(&self) -> anyhow::Result<T>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `T` | type parameter | Target type. Must implement `serde::DeserializeOwned`. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `anyhow::Result<T>` | The deserialised value of the next frame, or an error on read or deserialise failure. |
+
+Advances the internal read cursor by one frame. Subsequent `read` / `read_bytes` calls consume the frame after this one. Reading past the last frame returns an `io::Error` (the cursor read fails with unexpected EOF). Errors from this method are also returned for type mismatches: a frame written as `u64` and read as `String` deserialises to garbage and bincode rejects it.
+
+The host-side `read` is the same operation the guest performs with `io::read::<T>()`. It exists on the host primarily for tests, for round-trip checks of a hand-built buffer, and for deconstructing a saved input file before it is replayed.
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+stdin.write(&"hello".to_string());
+
+let n: u64 = stdin.read()?;
+let s: String = stdin.read()?;
+```
+
+To re-read a buffer from the start without rebuilding it, call `rewind` (or `reset`) before the next `read`.
+
+---
+
+## ZiskStdin::read_bytes
+
+Read the next frame as raw bytes without deserialisation.
+
+```rust
+pub fn read_bytes(&self) -> Vec<u8>
+```
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Vec<u8>` | The raw payload bytes of the next frame (header and padding stripped). |
+
+Returns the payload bytes of the next frame as the cursor sees them. The 8-byte length header and any trailing alignment padding are consumed but not returned.
+
+`read_bytes` is the host-side analogue of `io::read_input_slice()` on the guest. Use it when the frame payload is already in its final shape (a digest, a compact binary blob, an externally-formatted message) and bincode would only get in the way.
+
+This method panics if the buffer has been fully consumed. Unlike `read`, it does not return a `Result`; the contract assumes the caller knows there is a frame available. For uncertain consumption, use `read::<Vec<u8>>()` instead, which surfaces an `anyhow::Error` cleanly.
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write_slice(b"raw data");
+
+let bytes = stdin.read_bytes();
+assert_eq!(bytes, b"raw data");
+```
+
+---
+
+## ZiskStdin::write
+
+Serialise a value with bincode and append it as a length-prefixed frame.
+
+```rust
+pub fn write<T: Serialize>(&self, data: &T)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `&T` | Reference to the value to serialise. `T` must implement `serde::Serialize`. |
+
+The most common write entry point. The guest reads the resulting frame via `io::read::<T>()` with the same `T`. Order matters: the *N*th `write` on the host corresponds to the *N*th `io::read` on the guest.
+
+`write` panics if bincode serialisation fails. With ordinary `Serialize` types (numbers, strings, structs, vectors of those) serialisation is infallible; the panic path is reachable only with custom `Serialize` implementations that explicitly fail.
+
+`write` is safe to call from cloned `ZiskStdin` handles. Internally it acquires the `data` mutex first, then the `cursor` mutex (both held for the full frame), and the lock order is fixed across every call so concurrent writes cannot deadlock. The full frame (header + payload + padding) is appended to both buffers contiguously; concurrent calls never interleave bytes within a single frame.
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+stdin.write(&vec![1u32, 2, 3]);
+stdin.write(&MyStruct { x: 1, y: 2 });
+```
+
+---
+
+## ZiskStdin::write_slice
+
+Append raw bytes as a single frame.
+
+```rust
+pub fn write_slice(&self, data: &[u8])
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `data` | `&[u8]` | Raw bytes to append as one frame's payload. |
+
+The bytes are wrapped in an 8-byte length header and zero-padded to the next 8-byte boundary. The guest reads them via `io::read_input_slice()` and receives the original payload only.
+
+Use `write_slice` for data that is already in its final binary shape: digests, compact encodings, serde-encoded blobs you produced earlier and want to inject without re-serialising, externally-formatted payloads. It skips bincode entirely, so the host's `T: Serialize` constraint does not apply.
+
+Mixing `write` and `write_slice` in the same buffer is fine, as long as the guest reads each frame with the matching call (`io::read::<T>()` for `write`-produced frames, `io::read_input_slice()` for `write_slice`-produced frames).
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);                       // bincode-encoded
+stdin.write_slice(&[0x01, 0x02, 0x03]);   // raw bytes
+```
+
+---
+
+## ZiskStdin::save
+
+Write the buffer contents to a file.
+
+```rust
+pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `path` | `impl AsRef<Path>` | Destination path. The parent directory must already exist; `save` does not create intermediate directories. |
+
+The saved file contains the buffer's bytes verbatim, in the on-the-wire frame layout. It is byte-identical to what the prover would receive at the start of a job. The same file is what `cargo-zisk prove -i <path>` and `ZiskStdin::from_file` consume, so a host-built buffer can be captured for replay through the CLI or for fixture pinning in tests.
+
+`save` does not consume or rewind the buffer; subsequent reads and writes still work. The file represents the buffer's *current* contents, so save after every write you want included.
+
+Errors propagate from `std::fs::write` (permission denied, missing parent directory, disk full, etc.).
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+stdin.write(&"hello".to_string());
+
+stdin.save("inputs/test-vector.bin")?;
+
+// Replay later via the CLI:
+//   cargo-zisk prove -i inputs/test-vector.bin
+```
+
+---
+
+## ZiskStdin::reset
+
+Rewind the read cursor to the beginning of the buffer.
+
+```rust
+pub fn reset(&self)
+```
+
+#### Returns
+
+Nothing. The method takes `&self` and mutates the internal cursor in place.
+
+Sets the cursor's position to `0`. The buffer contents (`data`) are unchanged; the next `read` / `read_bytes` call reads the first frame again.
+
+Three places this matters in practice:
+
+- **Multi-pass tests.** A test fixture builds the buffer once, runs the host-side `read` chain to verify framing, calls `reset`, then submits the same buffer to `client.prove(...)` for the actual run. The prover sees a buffer with cursor at the start.
+- **Type-mismatch retry.** A `read::<u64>()` that returned an error from a frame written as `String` left the cursor advanced past the bad frame. `reset` rewinds so a corrected `read::<String>()` can re-read it.
+- **Replaying a saved file.** `from_file` loads a buffer with the cursor at the start; you do not normally need `reset` after it. But after consuming the buffer with host-side reads, `reset` puts it back into a "fresh from disk" state without re-reading the file.
+
+`reset` does *not* clear the buffer, does *not* invalidate any frames, and does *not* affect concurrent `write` calls (which always append to the end of `data`, not at the cursor position).
+
+`reset` is an alias for `rewind`; they are byte-for-byte identical in behaviour. Picking between them is a style call.
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+stdin.write(&"hello".to_string());
+
+// First pass: round-trip check on the host.
+let n: u64 = stdin.read()?;
+let s: String = stdin.read()?;
+assert_eq!(n, 42);
+assert_eq!(s, "hello");
+
+// Rewind so the prover starts reading from frame 0.
+stdin.reset();
+client.prove(&program, stdin).run()?.await?;
+```
+
+---
+
+## ZiskStdin::rewind
+
+Alias for `reset`. Identical behaviour.
+
+```rust
+pub fn rewind(&self)
+```
+
+#### Returns
+
+Nothing. Sets the internal cursor's position back to `0`.
+
+`rewind` exists for stylistic flexibility: it reads naturally in code that frames the operation as "go back and read again", whereas `reset` reads naturally in test fixtures that frame it as "put the buffer back in its initial state". Both methods compile to the same `Cursor::set_position(0)` call on the inner state, so there is no behaviour difference and no performance difference.
+
+If you encounter both names in the same codebase, treat them as interchangeable.
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+stdin.write(&100u64);
+
+let _: u64 = stdin.read()?;
+let _: u64 = stdin.read()?;
+
+stdin.rewind();
+let first: u64 = stdin.read()?;
+assert_eq!(first, 42);
+```
+
+---
+
+## ZiskStdin::clear
+
+Discard the entire buffer and reset the cursor.
+
+```rust
+pub fn clear(&self)
+```
+
+#### Returns
+
+Nothing. Truncates `data` to zero length and replaces the cursor with a fresh `Cursor` over an empty `Vec<u8>`.
+
+After `clear`, the buffer is genuinely empty. The next `read` returns an error (cursor read fails with unexpected EOF on the missing 8-byte length header); the next `read_bytes` panics for the same reason. The next `write` / `write_slice` starts a new frame at offset 0.
+
+#### When to call it
+
+- **Recycling a buffer between prove calls.** Same `ZiskStdin` instance, different inputs across runs. `clear` is cheaper than `let stdin = ZiskStdin::new()` because the existing `Arc<Inner>` is reused; only the inner `Vec<u8>`s change. The difference is small in absolute terms, but matters in tight loops.
+- **Recovering from a half-written buffer.** A producer task that errored partway through `write` calls left a frame sequence that does not match what the guest expects. `clear` resets to a known-good empty state before retrying.
+
+#### What to watch out for
+
+`clear` affects **every clone** of this `ZiskStdin`. Clones share the same `Arc<Inner>`, so a `clear` on one handle empties the buffer that all other clones are reading from or writing to. Two failure modes follow:
+
+- A producer task holding a clone may be midway through a `write` chain when another task calls `clear`. The chain is split; the buffer ends up with only the frames written after the clear.
+- A consumer task that already advanced the cursor has the cursor implicitly reset to 0 of the new (empty) buffer.
+
+To leave another producer's buffer untouched, build a new `ZiskStdin::new()` rather than reusing the cloned handle. The cost of `new()` is one `Arc` allocation; the cost of debugging a shared-buffer race is much higher.
+
+#### Example
+
+```rust
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+
+// First prove run consumes this buffer.
+let _ = client.prove(&program, stdin.clone()).run()?.await?;
+
+// Recycle the same instance for a second run with a different input.
+stdin.clear();
+stdin.write(&100u64);
+let _ = client.prove(&program, stdin).run()?.await?;
+```
+
+:::note
+`ZiskStdin` implements `Clone` and `Default`. Cloning is cheap (pointer-sized `Arc::clone`) and shares the underlying buffer with the source. Use clones for multi-producer setups; build a fresh `ZiskStdin::new()` for an independent buffer.
+:::
+
+## Where this picks up
+
+Related references for the input side of a prove call:
+
+- [`ZiskStream`](./stream): live-transport counterpart for incremental input.
+- [`ZiskHints`](./hints): out-of-band acceleration for precompile-heavy programs (not part of `io::read`).
+- [`ProverClient`](./prover-client): `client.prove(&program, stdin)` and `client.execute(&program, stdin)`.

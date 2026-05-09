@@ -1,0 +1,52 @@
+---
+id: index
+title: Precompiles
+sidebar_position: 4
+description: Low-level raw precompile calls (syscalls) for hashes,
+  big-integer arithmetic, and elliptic curves. Require unsafe and
+  raw pointer handling; prefer zisklib wrappers when available.
+displayed_sidebar: referencesSidebar
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="Raw precompile calls that map directly to VM syscalls. All
+  functions require unsafe and operate on raw pointers or params structs. Use
+  zisklib wrappers unless you need direct syscall access.">
+  <PageCard
+    href="/references/zisk-os/precompiles/hash-functions"
+    tag="Reference" tagColor="blue"
+    title="Hash Functions"
+    description="SHA-256, Keccak-f[1600], BLAKE2b round, and Poseidon2 compression syscalls."
+  />
+  <PageCard
+    href="/references/zisk-os/precompiles/big-integer"
+    tag="Reference" tagColor="blue"
+    title="Big-integer Arithmetic"
+    description="256-bit addition, 256-bit and 384-bit modular multiply-then-add syscalls."
+  />
+  <PageCard
+    href="/references/zisk-os/precompiles/secp256k1"
+    tag="Reference" tagColor="blue"
+    title="secp256k1"
+    description="G1 point addition and doubling syscalls over secp256k1."
+  />
+  <PageCard
+    href="/references/zisk-os/precompiles/secp256r1"
+    tag="Reference" tagColor="blue"
+    title="secp256r1 (P-256)"
+    description="G1 point addition and doubling syscalls over secp256r1 (P-256)."
+  />
+  <PageCard
+    href="/references/zisk-os/precompiles/bn254"
+    tag="Reference" tagColor="blue"
+    title="BN254"
+    description="G1 point addition and doubling, and Fp2 field arithmetic syscalls over BN254."
+  />
+  <PageCard
+    href="/references/zisk-os/precompiles/bls12-381"
+    tag="Reference" tagColor="blue"
+    title="BLS12-381"
+    description="G1 point addition and doubling, and Fp2 field arithmetic syscalls over BLS12-381."
+  />
+</IndexPage>

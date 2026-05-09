@@ -1,0 +1,71 @@
+---
+id: index
+title: Coordinator API
+sidebar_position: 4
+displayed_sidebar: referencesSidebar
+description: gRPC reference for the ZisK coordinator service.
+  RPCs, message types, status semantics, and error codes.
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="The ZisK coordinator exposes a gRPC service that clients use
+  to register guest programs, submit jobs (setup, prove, wrap, execute), stream
+  inputs and hints, watch progress, and retrieve results. The reference below
+  documents every RPC, every message type used in the wire protocol, and the
+  stable error codes returned in failures.">
+  <PageCard
+    href="/references/api/overview"
+    tag="Reference" tagColor="blue"
+    title="Overview"
+    description="Transport, package, addressing, retry semantics, and the conventions every RPC follows."
+  />
+  <PageCard
+    href="/references/api/register-guest-program"
+    tag="RPC" tagColor="green"
+    title="RegisterGuestProgram"
+    description="Upload a compiled guest ELF and obtain its content-addressed hash_id."
+  />
+  <PageCard
+    href="/references/api/job-request"
+    tag="RPC" tagColor="green"
+    title="JobRequest"
+    description="Submit a setup, prove, wrap, or execute job. Returns a job_id immediately."
+  />
+  <PageCard
+    href="/references/api/wait-job-result"
+    tag="RPC" tagColor="green"
+    title="WaitJobResult"
+    description="Long-poll until a job reaches a terminal state. Loop on it to await completion."
+  />
+  <PageCard
+    href="/references/api/watch-job"
+    tag="RPC" tagColor="green"
+    title="WatchJob"
+    description="Server-streaming RPC that emits a JobEvent on every state transition."
+  />
+  <PageCard
+    href="/references/api/streaming-input"
+    tag="RPC" tagColor="green"
+    title="PushJobInput / PushJobHintsInput"
+    description="Client-streaming RPCs for sending input or hint chunks to a running job."
+  />
+  <PageCard
+    href="/references/api/cancel-job"
+    tag="RPC" tagColor="green"
+    title="CancelJob"
+    description="Cancel a queued or running job. Idempotent and blocks until terminal."
+  />
+  <PageCard
+    href="/references/api/data-types"
+    tag="Reference" tagColor="blue"
+    title="Data types"
+    description="Shared message types: Proof, ProofKind, JobPhase, JobStatus, JobFailure, ExecutionStats, InputKind."
+  />
+  <PageCard
+    href="/references/api/errors"
+    tag="Reference" tagColor="blue"
+    title="Errors"
+    description="Stable numeric error codes, gRPC status mapping, and how to recover from each."
+  />
+</IndexPage>

@@ -1,0 +1,39 @@
+---
+id: intro
+sidebar_position: 0
+title: References
+description: Complete reference for the ZisK SDK, OS primitives,
+  CLI, and network API.
+displayed_sidebar: referencesSidebar
+hide_title: true
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="Complete reference documentation for every public interface
+  in the ZisK toolchain.">
+  <PageCard
+    href="/references/zisk-os/entrypoint"
+    tag="Guest" tagColor="green"
+    title="zisk-os"
+    description="Guest-side primitives: I/O, commits, precompiles, syscalls, fcalls, and the profiling interface."
+  />
+  <PageCard
+    href="/references/cargo-zisk"
+    tag="CLI" tagColor="blue"
+    title="cargo-zisk"
+    description="All cargo-zisk subcommands, flags, and environment variables for building, proving, and verifying."
+  />
+  <PageCard
+    href="/references/zisk-sdk"
+    tag="Host" tagColor="blue"
+    title="zisk-sdk"
+    description="Host-side SDK: ProverClient, StdIn, GuestProgram, Proof, and all prover configuration types."
+  />
+  <PageCard
+    href="/references/api"
+    tag="Network" tagColor="blue"
+    title="Coordinator API"
+    description="gRPC reference for the coordinator service: every RPC, every message type, error codes, and retry semantics."
+  />
+</IndexPage>

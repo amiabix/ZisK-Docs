@@ -1,0 +1,106 @@
+/* ── Grid ── */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.grid2col {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (max-width: 996px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .grid2col { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+/* ── Card ── */
+
+.link {
+  text-decoration: none !important;
+  color: inherit !important;
+  display: block;
+  height: 100%;
+  cursor: pointer;
+}
+
+.card {
+  background: var(--zisk-panel-bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--zisk-radius);
+  padding: 1.25rem 1.5rem;
+  height: 100%;
+  box-sizing: border-box;
+  box-shadow: var(--zisk-shadow-md);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.card:hover {
+  border-color: var(--zisk-victorian-peak);
+  box-shadow: var(--zisk-shadow-lg);
+  transform: translateY(-3px);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+
+/* ── Tag ── */
+
+.tag {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-radius: 4px;
+  padding: 2px 8px;
+  border: 1px solid;
+}
+
+.tagGreen  { color: var(--zisk-spring-green);  background: color-mix(in srgb, var(--zisk-spring-green)  12%, transparent); border-color: color-mix(in srgb, var(--zisk-spring-green)  30%, transparent); }
+.tagYellow { color: var(--zisk-busy-bee);       background: color-mix(in srgb, var(--zisk-busy-bee)      12%, transparent); border-color: color-mix(in srgb, var(--zisk-busy-bee)      30%, transparent); }
+.tagBlue   { color: var(--zisk-tag-blue);       background: color-mix(in srgb, var(--zisk-tag-blue)      12%, transparent); border-color: color-mix(in srgb, var(--zisk-tag-blue)      30%, transparent); }
+.tagPurple { color: var(--zisk-tag-purple);     background: color-mix(in srgb, var(--zisk-tag-purple)    12%, transparent); border-color: color-mix(in srgb, var(--zisk-tag-purple)    30%, transparent); }
+
+.arrow {
+  font-size: 1.5rem;
+  color: var(--zisk-victorian-peak);
+  opacity: 0.85;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.card:hover .arrow {
+  opacity: 1;
+  transform: translateX(4px);
+  color: var(--zisk-spring-green);
+}
+
+/* ── Content ── */
+
+.title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--zisk-text-light);
+}
+
+.body {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+  color: color-mix(in srgb, var(--zisk-text-light) 60%, transparent);
+}

@@ -1,0 +1,190 @@
+---
+id: logs
+sidebar_position: 2
+title: Logs
+description: Where coordinator and worker logs go on each deployment path, the filters that make them usable, and how to trace a single job end to end.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Where metrics tell you that the cluster is unhappy, logs tell
+you why a specific job failed. This page covers where the
+coordinator's and worker's logs land on each deployment path,
+how to format them for production aggregation, the filters
+that turn an overwhelming stream into a useful one, and the
+end to end recipe for tracing a single job through the
+system.
+
+</Summary>
+
+## Where logs go
+
+The destination of the prover's logs depends entirely on how
+you started the process, not on anything inside the binaries
+themselves. Each deployment path inherits its host's standard
+logging conventions, and the binaries write to stdout and
+stderr in a way that those conventions can route.
+
+| Deployment | Where the logs land |
+| --- | --- |
+| Docker Compose | The container's stdout, viewable with `docker compose logs -f coordinator worker`. The Docker daemon is responsible for retaining and rotating them. |
+| Linux server (systemd) | journald, viewable with `journalctl -u zisk-coordinator -f` for the coordinator and `journalctl -u zisk-worker -f` for the worker. journald handles retention, rotation, and structured fields. |
+| `cargo run` during development | Process stdout in your terminal. There is no rotation, no retention, no aggregation. This is fine for development and useless in production. |
+
+If you are wiring the cluster into an existing log aggregation
+stack (Loki, Splunk, ELK, Datadog, fluent-bit, anything else),
+the integration point is wherever your fleet already
+collects. On systemd hosts this is journald, which most
+aggregators read directly. On a Docker Compose stack it is the
+Docker daemon's logging driver, which most aggregators can
+also be pointed at. You do not need anything special on the
+prover side.
+
+---
+
+## JSON or pretty
+
+By default both binaries emit "pretty" logs: human readable,
+colourised when the terminal supports it, designed for someone
+to read live. That is the right default for a developer
+running `cargo run` and tailing a terminal. It is the wrong
+default for production.
+
+In production you want JSON. Set `[logging].format = "json"`
+in both `coordinator.toml` and `worker.toml` before promoting
+the configs to a real environment. JSON logs are
+machine parseable, every field is preserved as a structured
+key, and any aggregation system worth the name can index them
+without a fragile regex pass.
+
+The default level is `info`, which is the right level to leave
+on in production. When you are investigating an issue you can
+raise it temporarily to `debug`, either by editing the TOML
+config and restarting the service, or by overriding it through
+the standard `RUST_LOG` environment variable that every
+`tracing` crate based binary respects:
+
+```zisk-bash title="bash"
+sudo systemctl stop zisk-coordinator
+RUST_LOG=zisk_coordinator_server=debug,info sudo systemctl start zisk-coordinator
+```
+
+:::tip
+Drop back to `info` as soon as you have what you need.
+`debug` logs are not just noisy; they cost wall clock time on
+hot paths, especially in proving code where the per segment
+log volume can be large enough to slow the worker noticeably.
+:::
+
+---
+
+## Useful filters during an incident
+
+When the cluster is unhappy and you are reading live logs,
+the goal is to cut the stream down to what is operationally
+relevant. journald and Docker's `compose logs` both support
+this directly, without piping through external tools. The
+filters below are the ones worth committing to muscle memory.
+
+| What you want to see | Command |
+| --- | --- |
+| Errors only on the coordinator. | `journalctl -u zisk-coordinator -p err -f` |
+| Warnings and errors on a worker. | `journalctl -u zisk-worker -p warn -f` |
+| Recent history during an incident. | `journalctl -u zisk-coordinator --since "10 minutes ago"` |
+| The same idea on the Docker Compose stack. | `docker compose logs --since 10m coordinator | grep ERROR` |
+| Everything since the last boot, useful for "did anything happen overnight". | `journalctl -u zisk-coordinator -b` |
+
+The two priority filters (`-p err` and `-p warn`) are the
+ones you will reach for most often. They use the standard
+syslog priority levels, so the same flag works for any other
+systemd service on the host.
+
+The `--since "10 minutes ago"` flag accepts most natural
+language time expressions, including things like
+`"yesterday"`, `"2 hours ago"`, and exact ISO timestamps. When
+a customer reports "it broke around 14:30", that is the flag
+you use to narrow the window without scrolling.
+
+---
+
+## Reading a single job through the logs
+
+Most production investigations start from a job ID rather
+than from a log line. A host application reports that job
+`abc-123` failed, and your job is to figure out where in the
+cluster it failed.
+
+The recipe is the same regardless of deployment path. Begin
+on the coordinator, follow the trail to the workers that ran
+the job's segments, and grep each one for the relevant
+segment ID.
+
+The first stop is the coordinator, where every line touching
+the job will mention its ID. On a systemd deployment that
+becomes:
+
+```zisk-bash title="bash"
+journalctl -u zisk-coordinator | grep <job-id>
+```
+
+The output tells you which workers were assigned segments of
+that job. Each assignment line carries both the job ID and
+the segment ID, so you have everything you need to follow the
+trail outward.
+
+The second stop is each of those workers. On a systemd
+deployment, you ssh to the worker host and run:
+
+```zisk-bash title="bash"
+journalctl -u zisk-worker | grep <segment-id>
+```
+
+That gives you the worker side view of the same segment:
+when it picked it up, how long the trace generation took,
+whether the STARK proof completed, and whether anything
+unusual happened during it.
+
+When you have JSON formatted logs flowing into an aggregator,
+the same recipe is much simpler. Every relevant line includes
+the job ID as a structured field, so a query like
+`job_id="abc-123"` against your aggregation tool returns the
+end to end trail in one view, regardless of how many hosts
+the job touched. This is the main practical reason to insist
+on JSON logs in production. Without them, you are doing the
+correlation by hand, host by host.
+
+:::info
+The connecting key has to come from your host application.
+The cluster does not know what context the proof was being
+produced for; it only knows the job ID it minted. Your host
+should log the job ID at submission time, alongside whatever
+business context (request ID, user ID, batch ID) is
+meaningful in your environment. That single shared key is
+what makes the rest of the investigation possible.
+:::
+
+---
+
+## Summary
+
+Logs are routed by the deployment path, not by anything
+inside the prover. Docker Compose puts them on container
+stdout; systemd puts them in journald; `cargo run` puts them
+on your terminal. Production wants `[logging].format = "json"`
+so an aggregator can index every field, and `info` level by
+default with temporary `debug` only when you need it. During
+an incident, journald's priority filters (`-p err`, `-p warn`)
+and time window flags (`--since`) cut the stream to the
+relevant slice, and tracing a single job uses the job ID as
+the join key from coordinator to workers.
+
+---
+
+## Next steps
+
+Continue to [Scaling and restarts](./scaling-and-restarts)
+for the operational responses metrics and logs most often ask
+you to perform. The page after that, [Troubleshooting](./troubleshooting),
+turns the most common failure patterns into a runbook.

@@ -1,0 +1,33 @@
+---
+id: intro
+sidebar_position: 0
+title: Operating the Prover
+displayed_sidebar: proverSidebar
+hide_title: true
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="Run your own ZisK prover, from the conceptual frame
+  to a deployed cluster you can monitor in production. This section is
+  the operator track: it covers what the prover is, how to deploy it
+  on real infrastructure, and how to keep it healthy day to day.">
+  <PageCard
+    href="/prover/getting-started"
+    tag="Start here" tagColor="green"
+    title="Getting Started"
+    description="Understand what a distributed ZisK prover is, see its architecture, and bring up a coordinator and a worker on your own machine."
+  />
+  <PageCard
+    href="/prover/deploying"
+    tag="Deployment" tagColor="blue"
+    title="Deploying your prover"
+    description="Stand up a real cluster on bare Linux hosts or Docker Compose, then verify the deployment works end to end with a real proving job."
+  />
+  <PageCard
+    href="/prover/monitoring"
+    tag="Operations" tagColor="blue"
+    title="Monitoring"
+    description="Wire up metrics, alerts, and logs. Learn the operational responses each signal asks for and the runbook for the failure patterns you will actually see."
+  />
+</IndexPage>

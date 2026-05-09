@@ -1,0 +1,128 @@
+---
+id: proof-format
+sidebar_position: 3
+title: Choosing a proof format
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+ZisK produces three proof formats: a full STARK from execution, a Minimal STARK that wraps it into a smaller proof, and a PLONK that wraps it into a constant-size proof verifiable on-chain. The right choice depends on where the proof will be verified.
+
+</Summary>
+
+## Understanding proof formats
+
+STARK is always the starting point. Minimal STARK and PLONK wrap the STARK independently as post-processing steps, each trading additional proving time for a different output property: smaller size for off-chain use, or on-chain verifiability via Solidity.
+
+The two paths are mutually exclusive. You cannot convert a Minimal STARK into PLONK.
+
+![Diagram: Host · Prover · STARK · Minimal STARK · PLONK](/diagrams/svgs/50-proof-format-1.svg)
+
+### STARK proof
+
+Generates a single aggregated STARK proof by splitting the execution trace across specialized state machines, each proven independently and then recursively combined. Use STARK when proof size does not matter and you need the fastest proving time.
+
+### Minimal STARK proof
+
+Wraps the STARK final proof in a recursive STARK verification circuit, producing a much smaller proof at the cost of additional proving overhead. Use Minimal STARK when you need compact proofs for off-chain distribution or storage but do not require on-chain verification.
+
+### PLONK proof
+
+Wraps the STARK final proof in a SNARK verifier instead of another STARK. The result is a constant-size proof verifiable inside Solidity contracts. PLONK is the only format Solidity verifiers accept and the only choice for on-chain verification.
+
+---
+
+## Selecting a proof format
+
+STARK is the default in both the CLI and the SDK. Use the sections below to switch formats depending on where you are working. No other code changes are needed.
+
+### Using cargo-zisk
+
+Pass a flag to `cargo-zisk prove` to select a format. No flag means STARK. `-i` expects a plain filesystem path or a `file://` URI to a `ZiskStdin`-formatted file; HTTP(S) and other URI schemes are not supported.
+
+```zisk-bash title="bash"
+# STARK (default)
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> -o ./proofs/proof.bin --verify-proofs
+
+# Minimal STARK
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> --minimal -o ./proofs/minimal.bin --verify-proofs
+
+# PLONK
+cargo-zisk prove -e <path/to/guest-elf> -i <path/to/input.bin> --plonk -o ./proofs/proof-plonk.bin --verify-proofs
+```
+
+`--minimal` selects the direct minimal flow: the prover produces a Minimal STARK in one shot rather than producing a full STARK and wrapping afterwards. `-c` is the short alias.
+
+Verify the saved proof regardless of format:
+
+```zisk-bash title="bash"
+cargo-zisk verify -p ./proofs/minimal.bin
+```
+
+```
+✓ STARK proof was verified
+```
+
+### Using zisk-sdk
+
+Call `.wrap(ProofKind::...)` on the prove builder before `.run()`. Omitting it leaves the proof at the default STARK format.
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProofKind, ProverClient, ZiskStdin};
+
+// STARK (default)
+let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+// Minimal STARK
+let proof = client
+    .prove(&PROGRAM, stdin)
+    .wrap(ProofKind::VadcopFinalMinimal)
+    .run()?
+    .await?;
+
+// PLONK
+let proof = client
+    .prove(&PROGRAM, stdin)
+    .wrap(ProofKind::Plonk)
+    .run()?
+    .await?;
+```
+
+### Converting an existing proof
+
+If you already have a STARK proof on disk, convert it to Minimal STARK or PLONK without re-execution using `cargo-zisk wrap-proof`:
+
+```zisk-bash title="bash"
+# Convert to Minimal STARK
+cargo-zisk wrap-proof -p ./proofs/proof.bin --minimal -o ./proofs/proof-minimal.bin
+
+# Convert to PLONK
+cargo-zisk wrap-proof -p ./proofs/proof.bin --plonk -o ./proofs/proof-plonk.bin
+```
+
+This re-runs the post-processing step but not the full proving pipeline, making it much faster than reproving from scratch.
+
+Always verify the wrapped output before passing it to another system:
+
+```zisk-bash title="bash"
+cargo-zisk verify -p ./proofs/proof-minimal.bin
+```
+
+If verification of the wrapped proof fails, fall back to the direct `cargo-zisk prove --minimal` flow above while investigating the wrapped path.
+
+---
+
+## Summary
+
+You now know the three output formats ZisK produces and when each makes sense. STARK is fastest; Minimal STARK trades proving time for size; PLONK adds on-chain verifiability. Reach for Minimal STARK or PLONK only when your downstream consumer requires it.
+
+---
+
+## Where this picks up
+
+With proof format covered, the remaining pieces of the pipeline are how inputs flow in and what to do with the proof once it exits:
+
+- [Managing guest I/O](./io): how inputs and outputs flow between host and guest.
+- [Verifying a proof](./verify-proof): load an existing proof from disk and verify it programmatically.

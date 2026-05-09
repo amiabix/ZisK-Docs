@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1500 360" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 13px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.n-dec polygon { fill: #F3F3F2; stroke: #007755; stroke-width: 1.5; }
+.n-dec text.name { fill: #15161D; font-weight: 600; font-size: 13px; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr30" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-chip" transform="translate(20,140)">
+    <rect width="220" height="100" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">step 1</text>
+    <text class="name" x="110" y="48" text-anchor="middle">Instruction fetch</text>
+    <text class="sub" x="110" y="68" text-anchor="middle">read inst at pc</text>
+    <text class="sub" x="110" y="84" text-anchor="middle">via ROM Bus</text>
+  </g>
+  <g class="n-chip" transform="translate(290,140)">
+    <rect width="220" height="100" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">step 2</text>
+    <text class="name" x="110" y="48" text-anchor="middle">Operand resolution</text>
+    <text class="sub" x="110" y="68" text-anchor="middle">compute a, b</text>
+    <text class="sub" x="110" y="84" text-anchor="middle">via Memory Bus</text>
+  </g>
+  <g class="n-dec" transform="translate(560,140)">
+    <polygon points="100,0 200,50 100,100 0,50"/>
+    <text class="name" x="100" y="55" text-anchor="middle">Operation dispatch</text>
+  </g>
+  <g class="n-chip" transform="translate(820,30)">
+    <rect width="220" height="80" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">simple</text>
+    <text class="name" x="110" y="46" text-anchor="middle">execute here</text>
+    <text class="sub" x="110" y="62" text-anchor="middle">in Main</text>
+  </g>
+  <g class="n-chip" transform="translate(820,260)">
+    <rect width="220" height="80" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">complex</text>
+    <text class="name" x="110" y="50" text-anchor="middle">delegate via Op Bus</text>
+  </g>
+  <g class="n-chip" transform="translate(1090,140)">
+    <rect width="220" height="100" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">step 4</text>
+    <text class="name" x="110" y="48" text-anchor="middle">State update</text>
+    <text class="sub" x="110" y="68" text-anchor="middle">write c to dest</text>
+    <text class="sub" x="110" y="84" text-anchor="middle">via Memory Bus</text>
+  </g>
+
+  <path class="edge" d="M 240 190 L 290 190" marker-end="url(#arr30)"/>
+  <path class="edge" d="M 510 190 L 560 190" marker-end="url(#arr30)"/>
+  <path class="edge" d="M 760 175 C 790 175, 800 70, 820 70" marker-end="url(#arr30)"/>
+  <text class="edge-label" x="790" y="120" text-anchor="middle">simple</text>
+  <path class="edge" d="M 760 205 C 790 205, 800 300, 820 300" marker-end="url(#arr30)"/>
+  <text class="edge-label" x="790" y="265" text-anchor="middle">complex</text>
+  <path class="edge" d="M 1040 70 C 1070 70, 1080 175, 1090 175" marker-end="url(#arr30)"/>
+  <path class="edge" d="M 1040 300 C 1070 300, 1080 205, 1090 205" marker-end="url(#arr30)"/>
+</svg>

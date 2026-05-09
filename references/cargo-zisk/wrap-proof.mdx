@@ -1,0 +1,83 @@
+---
+id: wrap-proof
+title: Wrap proof
+sidebar_position: 6
+displayed_sidebar: referencesSidebar
+description: Convert an existing STARK proof to PLONK or minimal format.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Convert an existing STARK proof to PLONK or minimal format without re-executing the guest. Pure post-processing; no inputs or witness generation required.
+
+</Summary>
+
+## Overview
+
+`wrap-proof` transforms an existing STARK proof produced by `cargo-zisk prove` into an alternative proof format. It does not run the guest, generate a witness, or take inputs; it reads the input proof, applies the transformation, and writes the result.
+
+Two target formats are available: PLONK (required for EVM on-chain verification via ZiskVerifier contracts) and minimal STARK (compressed Vadcop proof, smaller than the original). Use `wrap-proof` when an existing STARK proof needs to be repackaged for a different verifier.
+
+```bash
+cargo-zisk wrap-proof -p <proof> [--plonk | --minimal] [-o <output>]
+```
+
+## Flags
+
+### Common
+
+| Flag | Short | Default | Conflicts | Description |
+|---|---|---|---|---|
+| `--proof <path>` | `-p` | required | | Path to the source STARK proof. |
+| `--proving-key <path>` | `-k` | auto-derived | | Path to the base proving key. Auto-derived from cache if omitted. |
+| `--proving-key-plonk <path>` | `-w` | auto-derived | | Path to the PLONK proving key. Required when `--plonk` is set. |
+| `--output <path>` | `-o` | format-dependent | | File path where the wrapped proof is written. |
+| `--verbose` | `-v` | `0` | | Increase logging verbosity. Repeatable: `-v`, `-vv`. |
+
+### Proof type
+
+| Flag | Short | Default | Conflicts | Description |
+|---|---|---|---|---|
+| `--minimal` | `-c` | `false` | `--plonk` | Convert to minimal (compressed) STARK format. |
+| `--plonk` | | `false` | `--minimal` | Convert to PLONK format for EVM on-chain verification. |
+
+One of `--minimal` or `--plonk` must be supplied.
+
+### Advanced
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--gpu` | `-g` | `false` | Enable GPU acceleration (non-CPU-only builds only). |
+
+## Examples
+
+Convert a STARK proof to PLONK for on-chain verification:
+
+```bash
+cargo-zisk wrap-proof -p ./proofs/vadcop_final_proof.bin --plonk -o ./proofs/proof-plonk.bin
+```
+
+Convert a STARK proof to minimal format:
+
+```bash
+cargo-zisk wrap-proof -p ./proofs/vadcop_final_proof.bin --minimal -o ./proofs/proof-minimal.bin
+```
+
+Convert with GPU acceleration:
+
+```bash
+cargo-zisk wrap-proof -p ./proofs/vadcop_final_proof.bin --plonk --gpu
+```
+
+## Outputs
+
+The wrapped proof is written to the path given by `--output`, or a default name based on the target format.
+
+| Target format | Default file name |
+|---|---|
+| PLONK | `vadcop_final_proof_plonk.bin` |
+| Minimal | `vadcop_final_proof_minimal.bin` |
+
+The wrapped proof is a complete proof in the requested format, ready for verification by the corresponding verifier (EVM for PLONK, off-chain for minimal STARK).

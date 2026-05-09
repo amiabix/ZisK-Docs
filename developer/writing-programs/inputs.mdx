@@ -1,0 +1,311 @@
+---
+id: inputs
+sidebar_position: 3
+title: Working with inputs
+description: How the guest input buffer works, the two read primitives, and how to choose between them.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+A guest reads inputs through a sequential frame buffer the host wrote before execution. This guide covers the wire format, the two read primitives, and how to pick the right one.
+
+</Summary>
+
+## How inputs reach the guest
+
+A guest cannot syscall, open files, or read from a network. Every byte it consumes was placed in the input region by the host before the run began.
+
+The host fills that region by calling `ZiskStdin::write` or `ZiskStdin::write_slice`. Each call appends one frame.
+
+The guest reads frames out in the same order they were written. The first read sees the first frame, the second read sees the next, and so on.
+
+That order is the contract. A type or size mismatch on either side either panics or silently shifts the cursor onto the wrong bytes for every later read.
+
+### The frame format
+
+Each frame the host produces carries a length-prefixed payload, padded to an 8-byte boundary:
+
+| Field | Width | Description |
+|---|---|---|
+| Length | 8 bytes | Little-endian byte count of the payload. |
+| Payload | N bytes | Serialized value or raw bytes. |
+| Padding | 0–7 bytes | Zero bytes, brings the total frame to an 8-byte multiple. |
+
+`io::read::<T>()` consumes one frame, strips the header, and passes the payload to bincode for deserialization.
+
+`io::read_input_slice()` consumes one frame and returns the payload bytes as-is, leaving any decoding to the caller.
+
+The diagram below shows three frames laid out in the buffer with the corresponding `io::read` calls:
+
+![Input buffer reads: three frames in the input buffer (① u8=83, ② u16=66, ③ u8=93) consumed by guest io::read calls; each frame is 8-byte length + 8-byte value+padding](/diagrams/svgs/57-input-buffer-reads.svg)
+
+The 8-byte alignment matters: every frame, regardless of payload size, occupies a multiple of 8 bytes.
+
+A `u8` value still costs 16 bytes on the wire (8 for the length, 1 for the value, 7 for padding). Grouping small values into a single frame keeps the buffer compact.
+
+### The two read primitives
+
+`ziskos::io` exposes two functions for consuming the input. They differ in one thing: whether the payload bytes pass through bincode on the way to the guest's locals.
+
+| Function | Use when | What it does |
+|---|---|---|
+| `read::<T>() -> T` | The guest expects a typed Rust value | Consumes one frame, deserializes the payload via bincode into `T`. `T` must implement `serde::DeserializeOwned`. |
+| `read_input_slice()` | The guest needs raw bytes or a custom format | Consumes one frame and returns the payload as a borrowed slice (zkVM target) or an owned boxed slice (host build). No deserialization. |
+
+`read_input_slice` returns a different type depending on the build target. On the zkVM target it returns `&'a [u8]`, a zero-copy reference into the input region.
+
+On host builds (testing, native execution) it returns `Box<[u8]>` because the input comes from a file or in-memory buffer and has to be allocated.
+
+That cfg-gating matters in practice: code holding the slice across another `io::read` call works on host but breaks on zkVM, where the borrow's lifetime ends at the next read.
+
+Both primitives can be mixed within the same program; each handles the part of the input it is best suited for.
+
+---
+
+## Working through a real example
+
+This section builds a guest three times. The logic is the same in every version: sum a stream of `u32` values, stopping when one matches a `sentinel` provided alongside the values.
+
+What changes between the versions is how the guest reads the input.
+
+Each version trades convenience for control or memory cost. Walking them in order shows what the read primitives actually buy you and where they cost.
+
+### Set up the project
+
+Scaffold the project with `cargo-zisk`. The CLI clones the standard ZisK template, wires the workspace, and configures the toolchain in one step:
+
+```zisk-bash title="bash"
+cargo-zisk new conditional-addition
+cd conditional-addition
+```
+
+The template lays out two crates: `guest/` for the ZisK program, and `common/` for any types shared between the guest and the host.
+
+### Version 1: reading a typed struct
+
+The simplest pattern is to define a struct that mirrors the input layout and read the entire input in a single call. Every field is deserialized and available before any logic runs.
+
+First, add `serde` to the common crate dependencies:
+
+```toml title="common/Cargo.toml"
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+```
+
+Define the shared input type in `common/src/lib.rs`:
+
+```rust title="common/src/lib.rs"
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct InputDTO {
+    pub sentinel: u32,
+    pub values: Vec<u32>,
+}
+```
+
+Add the dependencies to the guest crate:
+
+```toml title="guest/Cargo.toml"
+[dependencies]
+ziskos = { workspace = true }
+common = { path = "../common" }
+```
+
+Now open `guest/src/main.rs` and write the program. A single `io::read::<InputDTO>()` call consumes one frame and bincode-deserializes both fields before any logic runs:
+
+```rust title="guest/src/main.rs"
+use common::InputDTO;
+use ziskos::io;
+
+fn main() {
+
+    // Reading the entire input as a struct
+    let input = io::read::<InputDTO>();
+
+    // Sum each value, stopping if it matches the sentinel
+    let mut sum = 0;
+    for &value in &input.values {
+        if value == input.sentinel {
+            break;
+        } else {
+            sum += value;
+        }
+    }
+
+    println!("conditional_addition(sentinel:{:?}, values:{:?}) => {:?}",
+        input.sentinel,
+        input.values,
+        sum);
+
+}
+```
+
+Build and run with a `ZiskStdin` file produced by the matching host write pattern:
+
+```zisk-bash title="bash /hash-accumulator/guest/"
+cargo-zisk build --release
+cargo-zisk run -i ../inputs/version-1.bin
+```
+
+Sentinel is `99`. The loop sums `10` and `20`, then stops when it encounters `99`. `30` is never touched.
+
+One read, one struct, clean and type-safe. The cost is that bincode copies every byte into owned Rust values; the full input is in memory before the loop starts.
+
+If the guest needs to act on each value before reading the next, or if stopping early should avoid unnecessary reads, the next approach gives more control.
+
+### Version 2: reading multiple times
+
+Drop the struct entirely. Read the sentinel first, then a count, then each value individually. Break the loop the moment one matches.
+
+Open `guest/src/main.rs` and replace the implementation:
+
+```rust title="guest/src/main.rs"
+use ziskos::io;
+
+fn main() {
+
+    // Reading the entire input as a struct
+    let sentinel = io::read::<u32>();
+    let mut values_len = io::read::<u32>();
+
+    // Sum each value, stopping if it matches the sentinel
+    let mut sum = 0;
+    while values_len > 0 {
+        let value = io::read::<u32>();
+        if value == sentinel {
+            break;
+        } else {
+            sum += value;
+        }
+    }
+
+    println!("conditional_addition(sentinel:{:?}, values:{:?}) => {:?}",
+        input.sentinel,
+        input.values,
+        sum);
+
+}
+```
+
+Build and run, this time with an input file where the host wrote each value as a separate frame:
+
+```zisk-bash title="bash /hash-accumulator/guest/"
+cargo-zisk build --release
+cargo-zisk run -i ../inputs/version-2.bin
+```
+
+Same result. Each value is available the moment it is read, and the values after the sentinel are never consumed.
+
+The trade-off is that each read pays for its own frame header. Six frames here instead of one.
+
+For large inputs this overhead adds up; for short streams where early-exit savings dominate, it pays for itself.
+
+### Version 3: zero-copy with rkyv
+
+The previous two approaches both make bincode copy every byte into owned Rust values before the guest can touch them.
+
+For typed access without that copy, `read_input_slice` combined with [rkyv](https://rkyv.org) maps the byte slice directly onto a typed view.
+
+rkyv serializes the data in a layout that can be accessed in place from the underlying bytes: no deserialization step, no allocations beyond the slice itself, no manual offset arithmetic.
+
+The only requirement is that both the host and the guest use the rkyv-serialized form of the type.
+
+Add rkyv to the common crate and derive `Archive` on the struct:
+
+```toml title="common/Cargo.toml"
+[dependencies]
+rkyv   = { version = "0.8.16" , features = ["std", "alloc"]}
+```
+
+```rust title="common/src/lib.rs"
+use rkyv::{Archive, Deserialize, Serialize};
+
+#[derive(Archive, Serialize, Deserialize)]
+pub struct InputDTO {
+    pub sentinel: u32,
+    pub values: Vec<u32>,
+}
+```
+
+Add rkyv to the guest crate too:
+
+```toml title="guest/Cargo.toml"
+[dependencies]
+ziskos = { workspace = true }
+common = { path = "../common" }
+rkyv   = { version = "0.8.16" , features = ["std", "alloc"]}
+```
+
+Replace the guest implementation. `from_bytes` returns a typed view that points into the original byte slice; `input.sentinel` and `input.values` are reachable directly without a copy:
+
+```rust title="guest/src/main.rs"
+use common::InputDTO;
+use ziskos::io;
+
+fn main() {
+
+    // One read: the entire input as a raw byte slice
+    let data = io::read_input_slice();
+
+    // Zero-copy view: no deserialization, no allocation
+    let input = rkyv::api::high::from_bytes::<InputDTO, rkyv::rancor::Error>(data.as_ref()).unwrap();
+
+    // Sum each value, stopping if it matches the sentinel
+    let mut sum: u32 = 0;
+    for &value in input.values.iter() {
+        if value == input.sentinel {
+            break;
+        }
+        sum += value;
+    }
+
+    println!("conditional_addition(sentinel:{}, values:{:?}) => {}",
+        input.sentinel, &*input.values, sum);
+
+}
+```
+
+Build and run with an input file containing the rkyv-serialized payload:
+
+```zisk-bash title="bash /conditional-addition/guest/"
+cargo-zisk build --release
+cargo-zisk run -i ../inputs/version-3.bin
+```
+
+Same result as the previous two approaches.
+
+The advantage over manual byte parsing is that rkyv handles field layout and alignment, so the guest gets the typed struct interface without the bincode copy cost.
+
+The cost is a heavier dependency and a more rigid serialization format that has to match exactly between host and guest.
+
+### Comparing the three versions
+
+| | `read::<T>()` | Multiple reads | `read_input_slice` + rkyv |
+| --- | --- | --- | --- |
+| **When to use** | Schema is fixed, all fields needed up front | Need to act per-value or stop early | Want typed access with no copy cost |
+| **Frames consumed** | 1 (whole struct) | N (one per field) | 1 (whole input as bytes) |
+| **Allocation** | Full copy into owned Rust values | Per-value copy | None beyond the slice itself |
+| **Read order matters** | Yes (bincode field order) | Yes (call order) | No (rkyv addresses by offset) |
+| **Stop early saves reads** | No (struct already deserialized) | Yes | No (slice already buffered) |
+
+There is no single best choice. The right primitive depends on whether the schema is fixed, whether early exit avoids work, and whether copy cost dominates the guest's hot path.
+
+---
+
+## Summary
+
+The input buffer is the only channel from the outside world into the guest. It carries a sequence of length-prefixed frames the host wrote in the order the guest will consume them.
+
+`io::read::<T>()` deserializes one frame through bincode and returns owned values. `io::read_input_slice()` returns the raw payload of one frame, with a cfg-gated return type that is borrowed on zkVM and owned on host.
+
+The way the guest reads determines the layout the host must produce. Change the read pattern, and the input passed on must change to match.
+
+## Where this picks up
+
+With inputs covered, the natural next step is the other side of the I/O model: how a guest exposes results back to the verifier.
+
+- [Committing outputs](./outputs): how the guest writes public values into the proof.
+- [Profiling your program](./profiling): measure cycle cost so the expensive parts are visible before proving begins.

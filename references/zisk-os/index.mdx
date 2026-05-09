@@ -1,0 +1,46 @@
+---
+id: index
+title: zisk-os
+sidebar_position: 1
+description: Reference for all guest-side macros, I/O primitives,
+  and libraries in the zisk-os crate.
+displayed_sidebar: referencesSidebar
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="zisk-os is the guest-side Rust crate for writing ZisK
+  programs. It provides the entry point macro, I/O primitives for reading
+  inputs and committing outputs, profiling utilities, and the standard library
+  of precompiles.">
+  <PageCard
+    href="/references/zisk-os/entrypoint"
+    tag="Reference" tagColor="blue"
+    title="Entrypoint"
+    description="The entrypoint! macro that every ZisK guest program must define. Wires up the guest runtime and I/O."
+  />
+  <PageCard
+    href="/references/zisk-os/io"
+    tag="Reference" tagColor="blue"
+    title="IO"
+    description="Guest-side I/O primitives for reading inputs and committing public values."
+  />
+  <PageCard
+    href="/references/zisk-os/profiling"
+    tag="Reference" tagColor="blue"
+    title="Profiling"
+    description="Cost profiling primitives for measuring the proving cost of guest code sections."
+  />
+  <PageCard
+    href="/references/zisk-os/zisklib"
+    tag="Reference" tagColor="blue"
+    title="zisklib"
+    description="Standard library of helpers: hash functions, elliptic curves, and field arithmetic."
+  />
+  <PageCard
+    href="/references/zisk-os/precompiles"
+    tag="Reference" tagColor="blue"
+    title="Precompiles"
+    description="Native accelerated implementations of expensive primitives for efficient proving."
+  />
+</IndexPage>

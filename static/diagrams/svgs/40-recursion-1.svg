@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1320 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 13px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr40" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+    <marker id="arr40-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+  </defs>
+
+  <g class="n-art" transform="translate(540,20)">
+    <rect width="240" height="80" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">broadcast</text>
+    <text class="name" x="120" y="52" text-anchor="middle">α (challenge)</text>
+  </g>
+
+  <!-- Leaves row -->
+  <g class="n-chip" transform="translate(40,180)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">leaf</text><text class="name" x="120" y="50" text-anchor="middle">(o₁, s₁, c₁)</text></g>
+  <g class="n-chip" transform="translate(320,180)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">leaf</text><text class="name" x="120" y="50" text-anchor="middle">(o₂, s₂, c₂)</text></g>
+  <g class="n-chip" transform="translate(720,180)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">leaf</text><text class="name" x="120" y="50" text-anchor="middle">(o₃, s₃, c₃)</text></g>
+  <g class="n-chip" transform="translate(1000,180)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">leaf</text><text class="name" x="120" y="50" text-anchor="middle">(o₄, s₄, c₄)</text></g>
+
+  <!-- Compressors row -->
+  <g class="n-chip" transform="translate(40,340)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">compressor</text><text class="name" x="120" y="44" text-anchor="middle">C₁</text></g>
+  <g class="n-chip" transform="translate(320,340)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">compressor</text><text class="name" x="120" y="44" text-anchor="middle">C₂</text></g>
+  <g class="n-chip" transform="translate(720,340)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">compressor</text><text class="name" x="120" y="44" text-anchor="middle">C₃</text></g>
+  <g class="n-chip" transform="translate(1000,340)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">compressor</text><text class="name" x="120" y="44" text-anchor="middle">C₄</text></g>
+
+  <!-- Aggregation row -->
+  <g class="n-chip" transform="translate(180,460)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">aggregation</text><text class="name" x="120" y="50" text-anchor="middle">AG₁</text></g>
+  <g class="n-chip" transform="translate(860,460)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">aggregation</text><text class="name" x="120" y="50" text-anchor="middle">AG₂</text></g>
+
+  <!-- Root -->
+  <g class="n-out" transform="translate(540,620)">
+    <rect width="240" height="80" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">root</text>
+    <text class="name" x="120" y="50" text-anchor="middle">Root proof</text>
+  </g>
+
+  <!-- α broadcast (dashed) -->
+  <path class="edge-dim" d="M 600 100 C 400 130, 200 160, 160 178" marker-end="url(#arr40-dim)"/>
+  <path class="edge-dim" d="M 640 100 C 540 140, 460 160, 440 178" marker-end="url(#arr40-dim)"/>
+  <path class="edge-dim" d="M 680 100 C 760 140, 820 160, 840 178" marker-end="url(#arr40-dim)"/>
+  <path class="edge-dim" d="M 720 100 C 900 130, 1080 160, 1120 178" marker-end="url(#arr40-dim)"/>
+
+  <!-- Leaves → compressors -->
+  <path class="edge" d="M 160 260 L 160 338" marker-end="url(#arr40)"/>
+  <path class="edge" d="M 440 260 L 440 338" marker-end="url(#arr40)"/>
+  <path class="edge" d="M 840 260 L 840 338" marker-end="url(#arr40)"/>
+  <path class="edge" d="M 1120 260 L 1120 338" marker-end="url(#arr40)"/>
+
+  <!-- Compressors → AG -->
+  <path class="edge" d="M 160 400 C 160 430, 280 440, 280 458" marker-end="url(#arr40)"/>
+  <path class="edge" d="M 440 400 C 440 430, 320 440, 320 458" marker-end="url(#arr40)"/>
+  <path class="edge" d="M 840 400 C 840 430, 960 440, 960 458" marker-end="url(#arr40)"/>
+  <path class="edge" d="M 1120 400 C 1120 430, 1000 440, 1000 458" marker-end="url(#arr40)"/>
+
+  <!-- AG → Root -->
+  <path class="edge" d="M 300 540 C 300 580, 620 600, 620 618" marker-end="url(#arr40)"/>
+  <path class="edge" d="M 980 540 C 980 580, 700 600, 700 618" marker-end="url(#arr40)"/>
+</svg>

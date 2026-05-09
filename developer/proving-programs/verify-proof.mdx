@@ -1,0 +1,220 @@
+---
+id: verify-proof
+sidebar_position: 6
+title: Verifying a proof
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Load a proof from disk, verify it, and read back the committed public values. Verification confirms three things: the proof is well-formed, the program verification key matches, and the output is what you expect.
+
+</Summary>
+
+## Set up the project
+
+Scaffold a Merkle Tree project with `cargo-zisk`:
+
+```zisk-bash title="bash"
+cargo-zisk new merkle-tree && cd merkle-tree
+```
+
+The standard layout is in place: a guest crate where you will build a Merkle Tree from a list of leaves and commit the root, and a host crate where you will write the verification logic.
+
+This guide assumes a proof file at `proofs/proof.bin`. If you do not have one yet, see [Your first proof](./first-proof) for the full proving walkthrough. Point the guest at a small set of sample leaves and the prover will write the proof to that path.
+
+---
+
+## What a proof contains
+
+A ZisK proof bundles three things:
+
+| Field | Description |
+|---|---|
+| **Proof** | The attestation of correct execution. The verifier checks this without re-running the program. |
+| **Public values** | The outputs the guest committed, in this example the Merkle root, a 32-byte hash that summarises the entire tree. |
+| **Program verification key** | Derived from the guest program during setup. The verifier uses it to confirm the proof corresponds to that exact program. |
+
+
+## Verifying a proof with cargo-zisk
+
+The quickest way to verify is directly from the terminal. Pass the proof file to `cargo-zisk verify` with `-p`. The command checks the proof without re-executing the guest:
+
+```zisk-bash title="bash"
+cargo-zisk verify -p proofs/proof.bin
+```
+
+```
+✓ STARK proof was verified
+--- VERIFICATION SUMMARY ---
+      time: 12 milliseconds
+----------------------------
+```
+
+The exact prefix tracks the proof kind: `✓ STARK proof was verified` for `VadcopFinal` / `VadcopFinalMinimal`, and `✓ PLONK proof was verified` for `Plonk` proofs.
+
+Anyone with the proof can run this command and be certain the proof is valid, without seeing the input or repeating the computation.
+
+---
+
+## Verifying a proof with zisk-sdk
+
+You can also verify a proof entirely from Rust. The example already includes a verify script at `host/src/verify.rs`. It is an ordinary Rust program that runs on your machine outside the zkVM.
+
+### Add the import
+
+Start by importing the `Proof` type at the top of the file:
+
+```rust title="host/src/verify.rs"
+use zisk_sdk::Proof;
+```
+
+### Load the proof
+
+`Proof::load` reads a proof file written by a previous proving run. Point it at the file produced by the proving walkthrough:
+
+```rust title="host/src/verify.rs"
+use zisk_sdk::Proof;
+
+fn main() -> anyhow::Result<()> {
+
+    let proof = Proof::load("proofs/proof.bin")?;
+
+    Ok(())
+}
+```
+
+`Proof::load` is the standard way to obtain a proof from disk. If you already hold the individual components (the raw proof bytes, the public values, the program verification key, and the ZisK verification key), you can also construct one directly with `Proof::new(...)`, though that path is uncommon outside of integration code.
+
+### Verify the proof
+
+Call `proof.verify()` to check the proof. This does not re-execute the Merkle Tree guest. It only confirms the proof is valid. If the proof file has been tampered with or corrupted, `verify()` returns an error:
+
+```rust title="host/src/verify.rs"
+use zisk_sdk::Proof;
+
+fn main() -> anyhow::Result<()> {
+
+    let proof = Proof::load("proofs/proof.bin")?;
+
+    proof.verify()?;
+
+    Ok(())
+}
+```
+
+### Read the public values
+
+Once the proof is loaded, read the outputs the guest committed. `proof.get_publics()` returns a `&PublicValues`, which acts as a cursor: call `.read::<T>()` to deserialize the next committed value in the same order the guest called `io::commit`.
+
+There are two ways to consume them depending on whether you need typed access or raw bytes.
+
+**As raw bytes:** allocate the exact number of bytes you expect and call `read_slice(&mut buf)`. Use this when the guest committed raw bytes with `io::commit_slice`, when comparing against a known digest, or when extracting the public-output slots for another verifier:
+
+```rust title="host/src/verify.rs"
+use zisk_sdk::Proof;
+
+fn main() -> anyhow::Result<()> {
+
+    let proof = Proof::load("proofs/proof.bin")?;
+
+    let mut root = [0u8; 32];
+    proof.get_publics().read_slice(&mut root);
+    println!("Merkle root: 0x{}", hex::encode(root));
+
+    Ok(())
+}
+```
+
+**As typed reads:** call `read::<T>()` directly on the public values to deserialize each committed value in the order the guest produced them. Use `read_slice(&mut buf)` for raw bytes without deserialization. Both methods advance the internal cursor and can be mixed freely:
+
+```rust title="host/src/verify.rs"
+use zisk_sdk::Proof;
+
+fn main() -> anyhow::Result<()> {
+
+    let proof = Proof::load("proofs/proof.bin")?;
+
+    let publics = proof.get_publics();
+    let root: [u8; 32] = publics.read()?;
+
+    println!("Merkle root: 0x{}", hex::encode(root));
+
+    Ok(())
+}
+```
+
+### Verify the public values
+
+Verifying the proof is not enough on its own. You also need to confirm that the values the guest committed match what your application expects.
+
+The cleanest pattern is to verify the proof, then read the committed values and compare them against the expected ones:
+
+```rust title="host/src/verify.rs"
+use zisk_sdk::Proof;
+
+fn main() -> anyhow::Result<()> {
+
+    let proof = Proof::load("proofs/proof.bin")?;
+
+    // Proof check
+    proof.verify()?;
+
+    // Application-level check
+    let mut root = [0u8; 32];
+    proof.get_publics().read_slice(&mut root);
+    assert_eq!(root, expected_root, "Merkle root mismatch");
+
+    Ok(())
+}
+```
+
+If you need to verify against an externally supplied `PublicValues` or `ProgramVK` (for example, when the verifier holds the canonical program verification key separately from the proof), chain `.with_publics(&pv)` and `.with_program_vk(&vk)` on the proof before calling `.verify()`:
+
+```rust title="host/src/verify.rs"
+proof
+    .with_publics(&expected_publics)
+    .with_program_vk(&trusted_vk)
+    .verify()?;
+```
+
+### Run the verify script
+
+From the workspace root:
+
+```bash title="bash"
+cargo run --bin verify --release
+```
+
+```
+Merkle root: 0x3f4a...
+```
+
+## Important considerations
+
+Verifying the proof requires three checks. Do not skip any of them:
+
+- **The proof is valid.** Calling `.verify()` confirms the proof is well-formed and consistent with the program verification key. This is the baseline: it tells you the computation ran correctly inside the zkVM.
+
+- **The guest program is the one you expect.** The program verification key is derived from the guest program. If you do not have access to the source of the program that generated that key, you cannot know what the guest is actually doing. A malicious prover could submit a proof generated by a trivial guest that reads the desired output as input and commits it directly: the proof would verify, but the computation would be meaningless. Always audit or control the guest source before trusting a proof.
+
+- **The committed output matches what you expect.** In many use cases such as state transitions, cross-chain messages, and so on a valid proof is not enough on its own. You also need to confirm that the value the guest committed is the one your application requires. A proof of a valid but irrelevant state transition is useless. Assert the public values explicitly, as shown in the example above.
+
+---
+
+## Summary
+
+Verification is not a single check. You must confirm the proof is well-formed, the program verification key matches the one you audited, and the committed output is exactly what your application requires.
+
+---
+
+## Where this picks up
+
+With the full proving pipeline covered, the remaining pages go deeper on individual pieces:
+
+- [Managing guest I/O](./io): how inputs and outputs flow between host and guest.
+- [Choosing a proof format](./proof-format): the three proof types and when to use each.
+- [On-chain verification](./on-chain-verification): submit and verify PLONK proofs on a blockchain.
+
+For the full set of available APIs and options, head to the [SDK reference](/references/zisk-sdk) for a complete picture of what `zisk-sdk` exposes.

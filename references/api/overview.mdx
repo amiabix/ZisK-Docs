@@ -1,0 +1,196 @@
+---
+id: overview
+title: Overview
+sidebar_position: 1
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Transport, package, addressing, retry semantics, and
+  conventions used by every coordinator RPC.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+The coordinator service is a gRPC API defined in
+`zisk_coordinator_api.proto`. Clients register a guest ELF once,
+then submit jobs against its `hash_id`. Job submission is
+non-blocking. The server returns a `job_id` immediately and the
+client either long-polls (`WaitJobResult`) or subscribes to a
+server-stream of events (`WatchJob`).
+
+</Summary>
+
+## Service definition
+
+```proto
+service ZiskCoordinatorApi {
+  rpc RegisterGuestProgram(RegisterGuestProgramRequest)
+      returns (RegisterGuestProgramResponse);
+
+  rpc JobRequest(JobRequestMessage)
+      returns (JobResponse);
+
+  rpc WaitJobResult(WaitJobResultRequest)
+      returns (WaitJobResultResponse);
+
+  rpc WatchJob(WatchJobRequest)
+      returns (stream JobEvent);
+
+  rpc PushJobInput(stream PushJobInputRequest)
+      returns (google.protobuf.Empty);
+
+  rpc PushJobHintsInput(stream PushJobHintsInputRequest)
+      returns (google.protobuf.Empty);
+
+  rpc CancelJob(CancelJobRequest)
+      returns (CancelJobResponse);
+}
+```
+
+| Field | Value |
+| ----- | ----- |
+| Proto package | `zisk.coordinator.v1` |
+| Service name | `ZiskCoordinatorApi` |
+| Proto file | `distributed/crates/coordinator-api/proto/zisk_coordinator_api.proto` |
+| Transport | gRPC over HTTP/2 |
+| Encoding | Protobuf (proto3) |
+
+The high-level Rust client at
+[`zisk-sdk`](/references/zisk-sdk/prover-client) wraps this API.
+The reference below documents the underlying wire protocol so
+you can call it from any gRPC-capable language.
+
+## Conventions
+
+The following conventions hold across every RPC in this service:
+
+### Identifiers
+
+- **`job_id`** is a UUID v4 string. Every job (setup, prove, wrap,
+  execute) gets a fresh one. The client never chooses it; the
+  server returns it from `JobRequest`.
+- **`hash_id`** is the blake3 content hash of the guest ELF, as a
+  hex string. Stable across uploads of the same ELF; deterministic.
+
+### Idempotency
+
+- `RegisterGuestProgram` is idempotent. Uploading the same ELF
+  twice returns the same `hash_id`.
+
+- `CancelJob` is idempotent. Cancelling an already-terminal job
+  succeeds with `cancelled=false`.
+
+- Other RPCs are not idempotent. Re-submitting `JobRequest` with
+  identical content creates a *new* job with a *new* `job_id`.
+  Clients that need at-most-once semantics must dedupe by
+  `job_id` themselves.
+
+### Retry semantics
+
+- **Transport-level errors** (connection reset, gRPC `Unavailable`)
+  are safe to retry. The SDK retries automatically; bare gRPC
+  clients should retry with backoff.
+
+- **`Cancelled` status** from a long-poll RPC means the server
+  closed the call (typically a graceful shutdown). Retry against
+  the new server.
+
+- **`DeadlineExceeded`** means the *client's* deadline elapsed,
+  not the job's. The job continues; reconnect with `WaitJobResult`
+  or `WatchJob` to keep observing it.
+
+- **Job-level failures** (returned in `JobStatus.failed`) are
+  not transport errors. They mean the job ran and did not
+  succeed. See [Errors](./errors). Do not retry without
+  understanding the failure cause.
+
+### Streaming
+
+Three RPCs use streams:
+
+- `WatchJob` is server-streaming. The server emits `JobEvent`s
+  until the job reaches a terminal state, then closes the stream.
+
+- `PushJobInput` / `PushJobHintsInput` are client-streaming. The
+  client sends `InputChunk`s; closing the stream signals end-of-
+  input. The server returns `google.protobuf.Empty` after the
+  EOF is processed.
+
+There are no bidirectional streams in this API.
+
+### Inline vs streamed payloads
+
+Inputs and hints can be passed two ways:
+
+```proto
+message InputKind {
+  oneof kind {
+    InputChunk inline     = 1; // first chunk; use PushJobInput for additional chunks
+    string     stream_uri = 2; // file:// unix:// quic://
+  }
+}
+```
+
+- **`inline`** embeds the first chunk of input in the
+  initial `JobRequest`. Subsequent chunks (if any) are sent via
+  `PushJobInput`. Best for small inputs that fit in a single
+  RPC.
+- **`stream_uri`** has the coordinator pull the input from the
+  given URI itself. Supported schemes are `file://` (cluster-local
+  path), `unix://` (cluster-local socket), and `quic://`
+  (network-attached source). Best for very large inputs or for
+  pipelines where the input is already on shared storage.
+
+The trade-off between the two: `inline` (plus `PushJobInput`)
+keeps the wire path simple and works through any gRPC transport,
+but the client carries the whole upload. `stream_uri` shifts
+the upload off the client onto the coordinator's local
+filesystem or network, which is faster and avoids a round-trip
+per chunk, but assumes the coordinator can reach the source.
+
+The same shape applies to hints in `ProveRequest.hints`.
+
+## Job lifecycle
+
+Every job (setup, prove, wrap, execute) follows the same state
+machine, surfaced via `JobStatus`:
+
+![Diagram: * · * · * · *](/diagrams/svgs/48-api-overview-1.svg)
+
+`Completed`, `Failed`, and `Cancelled` are terminal. Once a job
+is in a terminal state, its status is immutable and cached
+indefinitely (until the coordinator restarts).
+
+A coordinator restart drops the in-memory job table: terminal
+results that have not yet been collected are gone, and any
+non-terminal job (`Queued`, `Running`, `WaitingForInput`)
+disappears. Subsequent calls referencing the lost `job_id`
+return [`JOB_NOT_FOUND`](./errors). Clients that need
+durability across restarts must persist the result themselves
+on first read.
+
+## Recommended client patterns
+
+Two patterns cover almost every use case:
+
+- **Synchronous wait**: submit with `JobRequest`, then loop on
+  `WaitJobResult` until you see a terminal status. Use this when
+  your application can block on the proof.
+
+- **Asynchronous watch**: submit with `JobRequest`, then call
+  `WatchJob` and react to events as they arrive. Use this when
+  you want to update UI / metrics / logs as the job progresses.
+
+`WaitJobResult` and `WatchJob` are both safe to call after a
+job is already terminal. They return or stream the final state
+immediately.
+
+## See also
+
+- [Testing your deployment](/prover/deploying/testing) for the
+  high-level SDK pattern, with a working remote-client example.
+- [`ProverClient`](/references/zisk-sdk/prover-client) for the
+  Rust wrapper around this API.
+- [Errors](./errors) for the stable error code table.

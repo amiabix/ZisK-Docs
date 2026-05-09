@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1400 480" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr41" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+    <marker id="arr41-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+  </defs>
+
+  <!-- Host subgraph -->
+  <g class="subgraph">
+    <rect x="40" y="40" width="380" height="400" rx="12"/>
+    <text class="label" x="60" y="68">Host (untrusted)</text>
+  </g>
+  <g class="n-art" transform="translate(80,120)">
+    <rect width="300" height="100" rx="8"/>
+    <text class="kind" x="150" y="24" text-anchor="middle">stream</text>
+    <text class="name" x="150" y="56" text-anchor="middle">input stream</text>
+    <text class="sub" x="150" y="78" text-anchor="middle">in[]</text>
+  </g>
+  <g class="n-art" transform="translate(80,280)">
+    <rect width="300" height="100" rx="8"/>
+    <text class="kind" x="150" y="24" text-anchor="middle">stream</text>
+    <text class="name" x="150" y="56" text-anchor="middle">hint stream</text>
+    <text class="sub" x="150" y="78" text-anchor="middle">hint[]</text>
+  </g>
+
+  <!-- VM subgraph -->
+  <g class="subgraph">
+    <rect x="600" y="40" width="500" height="400" rx="12"/>
+    <text class="label" x="620" y="68">ZisK VM (deterministic, sandboxed)</text>
+  </g>
+  <g class="n-chip" transform="translate(700,180)">
+    <rect width="320" height="120" rx="8"/>
+    <text class="kind" x="160" y="24" text-anchor="middle">guest</text>
+    <text class="name" x="160" y="56" text-anchor="middle">Guest state</text>
+    <text class="sub" x="160" y="80" text-anchor="middle">(pc, mem, out)</text>
+  </g>
+
+  <!-- Public outputs -->
+  <g class="n-out" transform="translate(1180,200)">
+    <rect width="200" height="80" rx="8"/>
+    <text class="kind" x="100" y="22" text-anchor="middle">public output</text>
+    <text class="name" x="100" y="50" text-anchor="middle">out[]</text>
+  </g>
+
+  <!-- Edges -->
+  <path class="edge" d="M 380 170 C 540 170, 580 220, 700 220" marker-end="url(#arr41)"/>
+  <text class="edge-label" x="540" y="160" text-anchor="middle">public inputs</text>
+
+  <path class="edge" d="M 380 330 C 540 330, 580 270, 700 270" marker-end="url(#arr41)"/>
+  <text class="edge-label" x="540" y="350" text-anchor="middle">hints (untrusted)</text>
+
+  <path class="edge-dim" d="M 700 200 C 540 80, 380 80, 230 110" marker-end="url(#arr41-dim)"/>
+  <text class="edge-label" x="500" y="100" text-anchor="middle" fill="#7E7F8C">request inputs / hints</text>
+
+  <path class="edge" d="M 1020 240 L 1180 240" marker-end="url(#arr41)"/>
+  <text class="edge-label" x="1100" y="230" text-anchor="middle">public outputs</text>
+</svg>

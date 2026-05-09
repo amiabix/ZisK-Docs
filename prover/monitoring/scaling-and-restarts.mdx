@@ -1,0 +1,278 @@
+---
+id: scaling-and-restarts
+sidebar_position: 3
+title: Scaling and restarts
+description: Add or remove worker capacity without restarting the coordinator, size compute units to actual hardware, and run rolling restarts that do not drop in-flight jobs.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+The two most common operational responses you will perform on
+a deployed cluster are scaling the worker pool and rolling
+through it for restarts. Both are safe to do under load if you
+follow the conventions described here, and both are designed
+so that you never have to touch the coordinator. This page
+covers when to scale, how to size each worker correctly, and
+the recipe for a rolling restart that does not drop in flight
+work.
+
+</Summary>
+
+## The shape of the operation
+
+The cluster is built so that the worker pool is genuinely
+elastic. Workers register themselves on startup, drain
+in flight work on shutdown, and the coordinator handles
+the rest of the bookkeeping automatically. None of the
+operations on this page require a coordinator restart, and
+none of them require a maintenance window if you are running
+more than a single worker.
+
+That elasticity is what makes the operations easy. You should
+not be hesitant to add or remove capacity at any time, and
+you should not be hesitant to bounce a worker that is
+misbehaving. The coordinator is built to absorb both.
+
+---
+
+## Adding worker capacity
+
+The two deployment paths add a worker in different ways, but
+the model is the same in both cases. A new worker process
+generates a UUID, connects to the coordinator's worker port,
+registers itself, and starts taking segment assignments
+proportionally to its advertised capacity.
+
+On the (planned) Docker Compose deployment, scaling will be a single command that the orchestrator handles. The intended shape, when the compose stack ships, is:
+
+```bash
+# Template (not runnable today; distributed/docker-compose.yml is not yet committed)
+docker compose -f distributed/docker-compose.yml up -d --scale worker=16
+```
+
+That command will tell Docker to converge on sixteen worker containers; the worker service is designed to be scaled freely once the compose file lands. Workers will generate UUIDs, register through Docker's internal DNS to the coordinator's worker-facing port, and begin processing segments. Excess workers will drain whatever segments they hold before exiting.
+
+For runnable scaling against current source today, use the [Linux server deployment](../deploying/linux-server) and add or remove worker hosts via your existing systemd / configuration-management tooling. Each worker is a `zisk-worker` systemd unit pointed at the coordinator's worker port (`50051` by default); adding capacity is "stand up another host and start the unit", and removing capacity is "stop the unit on the host you want to drain".
+
+On the Linux server deployment, scaling means installing a
+worker on a new host. The install script handles all of the
+system level work (creating the user, dropping the unit file,
+enabling the service), and the worker's auto registration
+behaviour means you do not need to coordinate the new host
+with the coordinator separately. The full procedure for that
+is on the [Linux server deployment
+page](../deploying/linux-server).
+
+To remove a worker host from the pool, stop its service:
+
+```zisk-bash title="bash"
+sudo systemctl stop zisk-worker
+```
+
+The worker does not exit immediately. It first drains the
+in flight segments it is holding (finishing the proofs and
+returning them to the coordinator), then disconnects, then
+exits. The coordinator notices the registration drop within
+`heartbeat_timeout_seconds` (default 30) and stops handing it
+new work. From the coordinator's point of view, the worker
+simply stopped accepting assignments and then went away
+cleanly.
+
+---
+
+## Knowing when to add capacity
+
+Two signals from the metrics layer reliably mean "the cluster
+needs more workers", and both are worth understanding before
+you act on either.
+
+The first signal is monotonically growing job queue depth. If
+`jobs_pending` (the metric exposed by the coordinator) trends
+upward over a sustained window of fifteen minutes or more,
+jobs are arriving faster than the cluster is proving them.
+This is not a transient spike: short bursts in queue depth
+are normal during traffic peaks and should drain on their
+own. Sustained growth means the cluster's steady state
+throughput is below the workload's steady state arrival rate,
+and only adding capacity (more workers, or bigger ones) fixes
+it.
+
+The second signal is end to end proving time being dominated
+by queue wait rather than by actual proving. The metric to
+look at is "time from job submission to first segment
+assigned". If that latency is a significant fraction of the
+total job time, jobs are spending most of their existence
+sitting in the queue. That is also a capacity problem, even
+though queue depth itself may not look alarming.
+
+If neither signal is present but individual jobs still feel
+slow, you do not need more workers. You need either bigger
+ones (more compute units per worker, on hosts with more cores
+or GPU streams) or a faster guest program. Adding workers in
+that situation will not help, because the bottleneck is per
+segment proving time, not per cluster throughput.
+
+---
+
+## Sizing compute units correctly
+
+Each worker advertises a `compute_capacity.compute_units`
+value in its config, and the coordinator allocates segments
+to workers in proportion to that value. A worker with
+thirty two units gets twice as many segments as a worker with
+sixteen, regardless of how fast either one actually proves.
+The number is, in effect, your declaration to the coordinator
+about how much work this worker can absorb at once.
+
+The right value matches the actual hardware. The mapping
+below is the rule of thumb most production deployments use as
+a starting point.
+
+| Hardware shape | Compute units to advertise |
+| --- | --- |
+| CPU only host | One unit per physical core available for proving. Reserve two cores for the operating system, networking, and the worker's own overhead. |
+| GPU only host (when GPU proving is enabled) | One unit per GPU stream. |
+| Mixed CPU and GPU host | The sum of the CPU unit count and the GPU stream count. |
+
+Two failure modes wait on either side of "the right number".
+Over advertising means you have told the coordinator the
+worker can take more segments than it can actually hold in
+RAM at once. The coordinator will keep handing it segments,
+they will queue inside the worker, RAM usage will spike as
+multiple segments materialise, and the worker will either
+slow down dramatically or get OOM killed. Under advertising
+means the worker is idle while peers are busy. Neither is
+catastrophic, but both waste hardware.
+
+After any capacity change, the practical sanity check is to
+watch the per worker job count for ten minutes of steady
+traffic. The ratios between workers should match the ratios
+between their advertised capacities. If a thirty two unit
+worker is processing the same number of jobs as a sixteen
+unit worker over the same window, the thirty two unit one is
+under utilised, which means either its advertised capacity is
+wrong or something on the host is preventing it from picking
+up work it has been assigned.
+
+:::tip
+The compute unit number is dimensionless on purpose. It is a
+ratio, not an absolute measurement of throughput. You can pick
+any base unit you find convenient (cores, streams, dollars
+per hour, made up scalars) as long as you are internally
+consistent across every worker in the cluster. The
+coordinator only cares about ratios.
+:::
+
+---
+
+## Rolling restarts of the worker pool
+
+When you need to restart the worker pool (for a config change,
+a binary upgrade, or a hardware maintenance window), the goal
+is to never have more than one worker unavailable at any
+moment. That keeps the cluster's effective capacity nearly
+unchanged during the restart, and it ensures that any single
+worker's drain has time to complete before the next worker
+goes down.
+
+For a single host, the procedure is one command. The unit
+file is configured for graceful shutdown, so a `restart`
+sends SIGTERM, waits for the worker to drain its in flight
+segments, and then starts the new process:
+
+```zisk-bash title="bash"
+sudo systemctl restart zisk-worker
+```
+
+After issuing the command, watch the coordinator's log to
+confirm the worker re-registered successfully before moving
+on to the next host. The worker prints a registration line
+on startup, the coordinator prints a matching line on its
+side, and the time between "stopped" and "back" is your
+effective drain plus startup time.
+
+For many worker hosts, a small loop covers the rolling
+restart cleanly:
+
+```zisk-bash title="bash"
+for host in worker-{01..10}; do
+  ssh "$host" "sudo systemctl restart zisk-worker"
+  echo "Restarted $host. Waiting for it to come back…"
+  until ssh "$host" "systemctl is-active zisk-worker" | grep -q active; do
+    sleep 5
+  done
+  echo "$host is back. Sleeping 30s before next host."
+  sleep 30
+done
+```
+
+The thirty second pause between hosts is the second
+ingredient. Its role is to give the cluster a moment to
+re balance segment assignments onto the just restarted
+worker before the next one drops out, so that the cluster
+never has two workers simultaneously unavailable. For very
+short jobs you can shorten the pause; for long jobs you may
+want to lengthen it so each host has time to take on its
+share of work before the next one goes down.
+
+---
+
+## Restarting the coordinator
+
+The coordinator is the cluster's single critical process, and
+restarting it is a more deliberate operation than restarting
+a worker. Every in flight job fails when the coordinator
+goes down, because the coordinator is the only component
+that knows where each segment is and how to aggregate the
+result. Workers reconnect automatically when the coordinator
+returns, so the workers themselves do not need any manual
+intervention, but the host applications that submitted jobs
+do need to retry whatever was in flight at the moment of the
+restart.
+
+The coordinator's `[server].shutdown_timeout_seconds`
+(default thirty seconds) is the drain time it allows for
+its own in flight requests when it receives a shutdown
+signal. Most coordinator restarts do not need any special
+manual coordination beyond timing them carefully. Hosts that
+have a `request_timeout` higher than the drain time will
+retry the in flight request transparently after the
+coordinator comes back, and from the host's point of view
+the proof completes successfully despite the restart.
+
+The practical rule is to restart the coordinator during
+low traffic windows whenever possible, and to warn the
+applications that submit long running jobs that any work in
+flight at the restart moment may need to be resubmitted by
+hand. Anything shorter than the drain time will retry on its
+own.
+
+---
+
+## Summary
+
+The worker pool is genuinely elastic, and the operations on
+this page are designed so that you never have to touch the
+coordinator to add capacity, remove capacity, or restart a
+worker. Scale up by adding containers (Docker Compose) or
+hosts (Linux server), scale down by stopping the worker
+service and letting it drain, and size each worker's
+advertised capacity to match its actual hardware. Rolling
+restarts use one command per host with a thirty second pause
+between hosts so the cluster never has two workers
+simultaneously offline. The coordinator is restarted more
+deliberately, during low traffic windows, because every
+in flight job fails when it does.
+
+---
+
+## Next steps
+
+Continue to [Troubleshooting](./troubleshooting) for the
+runbook that covers the failure patterns you will actually
+encounter once the cluster has been in production for a
+while: coordinators that will not start, workers that keep
+disconnecting, jobs that hang forever, and the diagnostics
+that point you at the right component each time.

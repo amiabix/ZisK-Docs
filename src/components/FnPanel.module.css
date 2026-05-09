@@ -1,0 +1,87 @@
+/* ── FnPanel — pill-selector for function definitions ── */
+
+.fnPanel {
+  margin: 1.5rem 0 2.5rem;
+  border-radius: var(--zisk-radius, 8px);
+  overflow: hidden;
+  box-shadow: var(--zisk-shadow-md);
+  border: 1px solid var(--zisk-silver, #e7e7e3);
+}
+
+/* ── Pill bar — dark header, matching table headers ── */
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.85rem 1.1rem;
+  background: var(--zisk-dark-blue, #1A1A24);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 0.76rem;
+  font-family: var(--zisk-font-mono, monospace);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.5;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.pill:hover {
+  background: rgba(10, 191, 131, 0.15);
+  border-color: var(--zisk-soft-green, #0ABF83);
+  color: var(--zisk-soft-green, #0ABF83);
+}
+
+.pill.active {
+  background: var(--zisk-victorian-peak, #007755);
+  border-color: var(--zisk-victorian-peak, #007755);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.pill.active:hover {
+  background: var(--zisk-soft-green, #0ABF83);
+  border-color: var(--zisk-soft-green, #0ABF83);
+  color: #ffffff;
+}
+
+/* ── Content area ── */
+
+.content {
+  padding: 1.5rem 1.75rem;
+  background: var(--ifm-background-surface-color, #ffffff);
+}
+
+.content > *:first-child {
+  margin-top: 0;
+}
+
+.content > *:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Responsive ── */
+
+@media (max-width: 768px) {
+  .pills {
+    padding: 0.65rem 0.85rem;
+  }
+
+  .content {
+    padding: 1.1rem 1rem;
+  }
+
+  .pill {
+    font-size: 0.72rem;
+    padding: 0.18rem 0.55rem;
+  }
+}

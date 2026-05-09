@@ -1,0 +1,198 @@
+---
+id: metrics-and-alerts
+sidebar_position: 1
+title: Metrics and alerts
+description: Health checks, the Prometheus metrics that matter, and a starter alerting set that catches most operationally significant problems.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+The first thing to wire up after deploying a cluster is a
+liveness probe and a small set of metric driven alerts. This
+page walks through both, starting with the coordinator's
+`/health` endpoint, moving on to the Prometheus metric families
+that are worth watching in production, and ending on five
+alerting rules that catch almost every operationally
+significant problem you will ever see.
+
+</Summary>
+
+## The liveness probe
+
+The lowest layer of monitoring is a yes or no answer to "is the
+coordinator process running". The coordinator exposes a
+liveness probe at `/health` on its metrics port, which returns
+`200 OK` when the process is up and answers nothing at all when
+it is not. There is no body to parse and no semantics beyond
+"alive". That is on purpose. The probe has to be cheap enough
+to call hundreds of times a minute from a load balancer or a
+Kubernetes node, and it has to be cheap enough that a
+coordinator under heavy proving load can still answer it
+quickly. Anything richer would slow the answer and confuse the
+contract.
+
+Hitting the probe by hand looks the same on both deployment
+paths, only the port changes. On a Linux server deployment the
+metrics port is `9090`:
+
+```zisk-bash title="bash"
+curl http://<coordinator-host>:9090/health
+```
+
+On a Docker Compose deployment every coordinator port is
+offset by one to avoid colliding with a bare binary running on
+the same host, so the metrics port becomes `9091`:
+
+```zisk-bash title="bash"
+curl http://localhost:9091/health
+```
+
+Three audiences typically consume that probe. A load balancer
+in front of the coordinator uses it as the health check that
+decides whether to keep sending traffic. A Kubernetes
+deployment plugs it into a `livenessProbe.httpGet.path: /health`
+spec so the orchestrator can restart a stuck pod. A simple
+monitoring pipeline (a cron, a heartbeat sidecar, a one line
+shell loop) hits it on a fixed cadence to know whether the
+process is up at all. All three are asking the same question
+and are happy with the same response.
+
+If you are running the cluster under systemd, you have a
+parallel signal that does not require networking at all.
+Running `systemctl is-active zisk-coordinator` on the host
+itself tells you whether the unit is in the active state. That
+is the canonical local liveness check, and it is what a
+host level watchdog (cron, monit, or systemd's own
+`OnFailure=` handlers) should call.
+
+On the Docker Compose stack the gRPC health probe on the API
+port is also wired up as the container's healthcheck, which is
+why `docker compose ps` is able to show the accurate
+`Up (healthy)` or `Up (unhealthy)` status next to each
+service. That status is a useful first thing to glance at if a
+worker is misbehaving, before you go looking at metrics.
+
+:::info
+A liveness probe answers "is the coordinator process alive",
+not "is the cluster usable". A coordinator that started
+correctly but has zero workers attached will still happily
+return `200 OK` from `/health`, even though it cannot prove a
+single thing. The only way to detect "the process is alive but
+the cluster is dead" is by combining the liveness probe with a
+metric driven alert, which the rest of this page covers.
+:::
+
+---
+
+## Prometheus metrics
+
+Only the coordinator currently exposes a Prometheus scrape endpoint. The default port is `9090`. Workers do not run a metrics server in the current build; observe worker health indirectly through coordinator metrics, the worker process's stdout / stderr logs, and host-level metrics from your existing infrastructure.
+
+The Docker Compose stack ships with a Prometheus container preconfigured to scrape the coordinator out of the box. For the Linux server deployment, point your existing Prometheus at the coordinator's metrics port the same way you would wire any other service.
+
+### What the coordinator publishes
+
+Five series are emitted by the coordinator (`distributed/crates/coordinator-server/src/metrics.rs`):
+
+| Metric                                  | Type      | Labels             | Description                                              |
+| --------------------------------------- | --------- | ------------------ | -------------------------------------------------------- |
+| `coordinator_requests_total`            | Counter   | `method`, `status` | gRPC calls by method and outcome.                        |
+| `coordinator_request_duration_seconds`  | Histogram | `method`           | gRPC call latency.                                       |
+| `coordinator_active_jobs`               | Gauge     | (none)             | Currently active (non-terminal) jobs.                    |
+| `coordinator_jobs_total`                | Counter   | `kind`, `outcome`  | Jobs by kind (`prove`, `wrap`, etc.) and final outcome.  |
+| `coordinator_registered_programs_total` | Gauge     | (none)             | Registered guest programs.                               |
+
+The `/health` endpoint on the same port returns `200 OK` with body `OK` (liveness probe). Use it for orchestrator health checks; do not parse the body.
+
+### What to look at
+
+Once the metrics are flowing, the practical question is what to actually look at. Think in terms of operational questions rather than individual series:
+
+| Operational question                  | What to watch                                                                                                    |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Is the coordinator alive at all?      | The `/health` endpoint succeeding, plus the standard Prometheus `up` series for the coordinator scrape target.   |
+| Is the backlog growing?               | `coordinator_active_jobs` over time, compared against the rate of `coordinator_jobs_total`.                       |
+| Are jobs failing?                     | `rate(coordinator_jobs_total{outcome="failed"}[5m])` and `rate(coordinator_requests_total{status!="ok"}[5m])`.   |
+| Is the gRPC layer slow?               | p95 of `coordinator_request_duration_seconds` per method.                                                         |
+| How many programs are registered?     | `coordinator_registered_programs_total` (slowly-changing gauge; useful for confirming `RegisterGuestProgram` worked). |
+
+If you are going to put a single number on a dashboard, the most useful one is `coordinator_active_jobs` over time. It catches both stuck jobs (the gauge climbs and never drains) and dead-coordinator outages (the scrape goes down and the gauge disappears).
+
+A worker-count metric does not exist in the current coordinator build. To detect worker outages, watch the rate of `coordinator_jobs_total{outcome="failed"}` for `CLUSTER_UNAVAILABLE`-shaped failures and observe the worker hosts directly via your host-level monitoring.
+
+---
+
+## A starter alerting set
+
+If you are standing up alerting from scratch and want a small
+set of rules that catches the things that actually matter,
+five rules will get you most of the way there. Each one is
+written so that it is rare in normal operation, urgent when it
+fires, and unambiguous about what to do.
+
+| Rule | Query | For | Why it matters |
+| --- | --- | --- | --- |
+| Coordinator down | `up{job="zisk-coordinator"} == 0` | 2 m | The coordinator is unreachable. Page immediately because every in flight job is failing. |
+| Active-job backlog growing | `coordinator_active_jobs` increasing monotonically over the window | 15 m | Jobs are arriving faster than the cluster can prove them. The cluster is healthy, but under-provisioned, or workers have stalled. |
+| Job failures spiking | `rate(coordinator_jobs_total{outcome="failed"}[5m]) > <baseline>` | 5 m | Some class of jobs is consistently failing. Likely a worker outage (`CLUSTER_UNAVAILABLE`), a bad input pattern, or a setup mismatch. |
+| gRPC errors spiking | `rate(coordinator_requests_total{status!="ok"}[5m]) > <baseline>` | 5 m | The coordinator API itself is rejecting requests. Often the leading indicator of a misconfigured client or a coordinator-side bug. |
+| gRPC latency regression | p95 of `coordinator_request_duration_seconds` above its rolling 24 h baseline by N× | 15 m | The coordinator is overloaded, slow under GC, or fronting a slow backend. Often precedes a backlog spike. |
+
+A short note on each one is worth reading carefully, because
+the rationale shapes how aggressively to tune the threshold.
+
+The "coordinator down" rule pages immediately, after only a
+two minute grace period, because the impact is total: as long
+as the coordinator is unreachable, no host can submit a job
+and no in flight job is being aggregated. Two minutes is
+enough to absorb a fast restart or a transient network blip,
+short enough to not waste the on call team's time during a
+real outage.
+
+The "active-job backlog growing" rule is a capacity signal, not a cluster-health signal. If it fires you usually do not need to restart anything; you need to add more workers, or buy bigger ones, or push back on whoever is sending the traffic. Treat it as an alert that ends in a planning conversation rather than an incident.
+
+The "job failures spiking" rule is the most common worker-outage canary in the absence of a dedicated worker-count metric. When every worker drops off, jobs fail with `CLUSTER_UNAVAILABLE`-shaped errors, which roll into `coordinator_jobs_total{outcome="failed"}`. Tune the threshold against your normal failure rate; a healthy cluster has near-zero failures, so even a modest absolute rate is meaningful.
+
+The "gRPC errors spiking" rule catches misuse and coordinator-side bugs. A `status!="ok"` rate climb usually means clients are sending malformed requests (programmer error, deploy mismatch) or that the coordinator is hitting an internal error path.
+
+The "gRPC latency regression" rule is the canary for coordinator load. Latency tends to climb before the active-job gauge does, so this rule fires earlier than the backlog rule when the cluster is starting to struggle.
+
+:::info
+Metrics are good at "is the cluster healthy on aggregate".
+They are bad at "did this specific job fail and why". When a
+host application reports a failure you cannot explain from
+metrics alone, the answer lives in the [logs](./logs), and
+the only key that connects host side errors to coordinator
+side state is the job ID. Always include the job ID in your
+application's log line when you submit a job. It is the one
+shared identifier that lets you grep coordinator logs, worker
+logs, and host logs for the same event.
+:::
+
+---
+
+## Summary
+
+The lowest layer of monitoring is the `/health` liveness
+probe, which answers "is the coordinator process alive". Above
+that, Prometheus metrics answer "is the cluster healthy on
+aggregate", with a small set of metric families covering
+worker registration, queue depth, per worker latency, and
+network reconnect counts. Five alerting rules (coordinator
+down, no workers, worker count dropped, queue depth growing,
+per worker p95 spike) cover the problems you actually want to
+be paged on. Anything more specific than that lives in the
+logs and is keyed by the job ID.
+
+---
+
+## Next steps
+
+Continue to [Logs](./logs) for the second observability
+layer, including how to filter journald and Docker logs
+during an incident and how to trace a single job through the
+system end to end. After that, [Scaling and
+restarts](./scaling-and-restarts) covers the operational
+responses metrics most often ask you to perform.

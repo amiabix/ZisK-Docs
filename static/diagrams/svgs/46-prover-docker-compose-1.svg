@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1500 480" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr46" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-chip" transform="translate(40,200)">
+    <rect width="220" height="80" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">your code</text>
+    <text class="name" x="110" y="52" text-anchor="middle">Your host</text>
+  </g>
+
+  <g class="subgraph">
+    <rect x="420" y="40" width="1040" height="400" rx="12"/>
+    <text class="label" x="440" y="68">docker compose stack</text>
+  </g>
+
+  <g class="n-chip" transform="translate(480,180)">
+    <rect width="380" height="160" rx="8"/>
+    <text class="kind" x="190" y="22" text-anchor="middle">service</text>
+    <text class="name" x="190" y="52" text-anchor="middle">coordinator</text>
+    <text class="sub" x="190" y="80" text-anchor="middle">:7001 (API)</text>
+    <text class="sub" x="190" y="100" text-anchor="middle">:9091 (metrics)</text>
+    <text class="sub" x="190" y="120" text-anchor="middle">:50052 (workers, internal)</text>
+  </g>
+
+  <g class="n-chip" transform="translate(1080,140)">
+    <rect width="320" height="80" rx="8"/>
+    <text class="kind" x="160" y="22" text-anchor="middle">service</text>
+    <text class="name" x="160" y="52" text-anchor="middle">worker</text>
+  </g>
+  <g class="n-chip" transform="translate(1080,300)">
+    <rect width="320" height="80" rx="8"/>
+    <text class="kind" x="160" y="22" text-anchor="middle">service</text>
+    <text class="name" x="160" y="52" text-anchor="middle">worker</text>
+  </g>
+
+  <path class="edge" d="M 260 230 C 360 230, 420 230, 480 230" marker-end="url(#arr46)"/>
+  <text class="edge-label" x="370" y="218" text-anchor="middle">:7001</text>
+
+  <path class="edge" d="M 260 270 C 360 270, 420 290, 480 290" marker-end="url(#arr46)"/>
+  <text class="edge-label" x="370" y="305" text-anchor="middle">:9091</text>
+
+  <path class="edge" d="M 860 240 C 940 240, 1020 180, 1080 180" marker-end="url(#arr46)"/>
+  <text class="edge-label" x="970" y="195" text-anchor="middle">http://coordinator:50052</text>
+
+  <path class="edge" d="M 860 280 C 940 280, 1020 340, 1080 340" marker-end="url(#arr46)"/>
+  <text class="edge-label" x="970" y="335" text-anchor="middle">http://coordinator:50052</text>
+</svg>

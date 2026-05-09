@@ -1,0 +1,531 @@
+---
+id: guest-program
+title: GuestProgram
+sidebar_position: 1
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 4
+description: Load and manage compiled guest ELF binaries via
+  load_program! or from_uri.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+GuestProgram wraps a compiled guest ELF binary and the metadata
+the prover needs to identify and prove it. It is the required
+argument for `setup`, `upload`, `execute`, and `prove` operations
+on `ProverClient`.
+
+</Summary>
+
+## Overview
+
+Every ZisK proving run starts with a `GuestProgram`. It bundles two
+things: the raw ELF bytes that encode the program's instruction
+stream, and a `ProgramId` that uniquely identifies the program by
+name and a blake3 hash of those bytes.
+
+The prover uses the ELF to re-execute the program over the supplied
+inputs and build the execution trace. The `ProgramId` lets the SDK
+correlate a proof with the exact binary that produced it;  if the
+ELF changes, the hash changes, and any previously generated proving
+keys become invalid.
+
+Three ways to obtain a `GuestProgram`:
+
+- **`load_program!`** embeds the ELF into the host binary at
+  compile time, reading the compiled ELF path and its blake3 hash
+  from environment variables set by the ZisK build system, so the
+  static is built once at compile time with zero runtime cost.
+
+- **`GuestProgram::from_uri`** loads the ELF at runtime from a
+  file path or `file://` URI, useful when the ELF is produced or
+  selected dynamically and is not available at compile time.
+
+- **`GuestProgram::from_bytes`** wraps ELF bytes that are already
+  in memory. Niche escape hatch for setups where the bytes arrive
+  over a custom transport (HTTP fetch, in-process cache, message
+  queue) and `from_uri` cannot help.
+
+---
+
+## Types
+
+A `GuestProgram` is composed of two smaller types: a `ProgramId` that identifies the binary, and an `Elf` that carries the bytes themselves. Both inner types are also re-exported from `zisk-sdk` so you can construct a `GuestProgram` by hand if neither `load_program!` nor `from_uri` fits your delivery model. In normal use you only touch the outer `GuestProgram` and let the SDK manage the inner types for you.
+
+The three types are designed around one shared property: the same Rust type works whether the ELF was baked into the host binary at compile time or loaded from disk at runtime. Both code paths produce a value of the same type, so downstream APIs (`client.setup`, `client.prove`, etc.) never need to care about the source.
+
+### GuestProgram
+
+```rust
+pub struct GuestProgram {
+    pub program_id: ProgramId,
+    pub elf: Elf,
+}
+```
+
+| Field        | Type        | Description                                        |
+| ------------ | ----------- | -------------------------------------------------- |
+| `program_id` | `ProgramId` | Identifies the program by name and ELF hash.       |
+| `elf`        | `Elf`       | The compiled ELF bytes (static or heap-allocated). |
+
+`GuestProgram` is the value every pipeline operation accepts. The fields are public so a `GuestProgram` can be constructed inline when neither factory fits, but the recommended path is `load_program!` (compile-time embed) or `from_uri` (runtime load), which fill both fields consistently.
+
+A third constructor, `GuestProgram::from_bytes(name, elf_data)`, accepts already-loaded ELF bytes directly. Use it when the bytes were fetched over a custom transport (HTTP, S3, an in-process cache) rather than read from a local file.
+
+The struct derives `Clone` and `Debug`. Cloning is cheap when the `Elf` is borrowed (`Cow::Borrowed`, no allocation) and is a deep copy when it is owned (`Cow::Owned`, one heap allocation per clone).
+
+---
+
+### ProgramId
+
+`ProgramId` is the program's identity inside the SDK and across the coordinator. It does two jobs.
+
+First, it is how the prover correlates a proving artifact (the program verification key on disk) with the binary it was generated for. If the ELF changes, `hash_id` changes, and any cached artifact for the old hash becomes irrelevant.
+
+Second, it is how the remote backend deduplicates uploads. The first `client.upload(&program)` call stores the ELF under `hash_id`; subsequent uploads of the same content are no-ops on the server side.
+
+You rarely build a `ProgramId` manually. `load_program!` derives it from the build environment; `from_uri` derives it from the file. The `new_static` constructor exists for the macro itself and for tests that need a `const`-initialised value.
+
+```rust
+pub struct ProgramId {
+    pub name:    Cow<'static, str>,
+    pub hash_id: Cow<'static, str>,
+}
+
+impl ProgramId {
+    pub const fn new_static(name: &'static str, hash_id: &'static str) -> Self;
+    pub fn get_name(&self) -> &str;
+    pub fn get_hash(&self) -> &str;
+}
+```
+
+| Field     | Type                  | Description                                                                 |
+| --------- | --------------------- | --------------------------------------------------------------------------- |
+| `name`    | `Cow<'static, str>`   | Human-readable name. From `load_program!`: the literal passed to the macro. From `from_uri`: the file stem (`hash-guest` from `.../release/hash-guest`). |
+| `hash_id` | `Cow<'static, str>`   | Hex-encoded blake3 hash of the ELF bytes. Stable for a given byte sequence; changes whenever the ELF bytes change, even by one bit. |
+
+Both fields are `Cow<'static, str>` for the same reason `Elf::data` is a `Cow<[u8]>`: a `ProgramId` built by `load_program!` borrows from the binary's read-only data segment with no allocation, while one built by `from_uri` owns its strings on the heap. The `Display` impl renders as `"name:hash_id"` so a single line in a log identifies both the program and the exact build:
+
+```rust
+let id = program.program_id();
+println!("{id}"); // e.g. "hash-guest:3a7f2c…"
+```
+
+Use the `hash_id` to confirm that a proving key on disk matches the binary you are about to prove. The setup directory is named after the hash; if `client.setup(&program)` finds no matching directory, it generates one. Confirming the hash before submitting a long-running prove call avoids the "wrong key, silent re-setup" surprise.
+
+---
+
+### Elf
+
+`Elf` carries the compiled guest binary. Its job is simple in description (hold bytes) but its single field uses `Cow` to support two very different lifetimes without forcing a runtime cost on the embedded path.
+
+```rust
+pub struct Elf {
+    pub data: Cow<'static, [u8]>,
+}
+
+impl Elf {
+    pub const fn from_embedded(bytes: &'static [u8]) -> Self; // Cow::Borrowed
+    pub fn new(data: Vec<u8>) -> Self;                        // Cow::Owned
+}
+```
+
+| Field  | Type                 | Description                                                              |
+| ------ | -------------------- | ------------------------------------------------------------------------ |
+| `data` | `Cow<'static, [u8]>` | The ELF bytes. `Cow::Borrowed` when embedded, `Cow::Owned` when loaded.  |
+
+Two observations follow from the type.
+
+**The embedded path costs nothing at runtime.** `load_program!` expands to `Elf::from_embedded(include_bytes!(...))`, so the bytes live in the binary's read-only data segment. There is no heap allocation, no I/O, and no copy when the host process starts; the `static GuestProgram` is materialised at compile time.
+
+**The runtime path owns its bytes.** `from_uri` and `from_bytes` end up at `Elf::new(Vec<u8>)`, which produces a `Cow::Owned`. The bytes live on the heap and are dropped when the `GuestProgram` goes out of scope.
+
+The downstream API does not care which variant it has. `program.elf()` returns `&[u8]` either way. The only place the distinction is observable is when cloning: cloning a `Cow::Borrowed` is a pointer copy; cloning a `Cow::Owned` is a heap allocation.
+
+---
+
+## load\_program!
+
+Embed a compiled guest program into the host binary at compile time. The macro is the recommended default; reach for `from_uri` only when the ELF is not available when the host is compiled.
+
+```rust
+static PROGRAM: GuestProgram = load_program!("<bin-target-name>");
+```
+
+| Argument         | Type   | Description                                                                                      |
+| ---------------- | ------ | ------------------------------------------------------------------------------------------------ |
+| bin target name  | `&str` | The cargo bin target name of the guest crate. Must match the build script's exported env vars.   |
+
+The literal passed to the macro is not a path. It is the cargo bin target name of the guest crate, used verbatim as a suffix on two environment variables that the ZisK build script emits.
+
+### How the macro expands
+
+`load_program!("hash-guest")` expands (roughly) to:
+
+```rust
+GuestProgram {
+    program_id: ProgramId::new_static(
+        "hash-guest",
+        env!("ZISK_ELF_HASH_hash-guest"),
+    ),
+    elf: Elf::from_embedded(include_bytes!(env!("ZISK_ELF_hash-guest"))),
+}
+```
+
+Three things are happening:
+
+- `env!("ZISK_ELF_<name>")` resolves at compile time to the absolute path of the compiled guest ELF.
+- `include_bytes!(...)` reads that file and embeds its bytes as a `&'static [u8]` in the host binary's read-only data segment.
+- `env!("ZISK_ELF_HASH_<name>")` resolves to the precomputed blake3 hash, also embedded as a `&'static str`.
+
+The result is a `const`-initialisable `GuestProgram`. There is no I/O at host startup and no heap allocation; the bytes and the hash are already in the binary.
+
+### Environment variables
+
+The build script emits the following per bin target. `<name>` is the cargo bin target name verbatim, with no normalisation, uppercasing, or hyphen substitution. Match it exactly in the macro literal.
+
+| Environment variable               | Set by             | Contains                                                                       |
+| ---------------------------------- | ------------------ | ------------------------------------------------------------------------------ |
+| `ZISK_ELF_<name>`                  | `cargo-zisk build` | Absolute path to the compiled guest ELF.                                       |
+| `ZISK_ELF_HASH_<name>`             | `cargo-zisk build` | Hex-encoded blake3 hash of the ELF bytes.                                      |
+| `ZISK_ELF_<name>_WITH_HINTS`       | `cargo-zisk build` | `"1"` when the build was run with `--hints`. Read directly if your code needs to gate hint-aware setup. |
+
+If `ZISK_ELF_<name>` or `ZISK_ELF_HASH_<name>` is missing at compile time, the macro fails with the standard `env!` error. The two are emitted together by the build script, so a missing variable usually means the build script ran but the ELF was not produced (the build script only emits the env vars when the ELF file actually exists on disk).
+
+### IDE / `cargo check` escape hatch
+
+Rust-analyzer and other tooling that runs `cargo check` outside the ZisK build pipeline will not have the env vars set. To prevent every `cargo check` from erroring, the macro recognises the `zisk_skip_guest_build` cfg flag:
+
+```bash
+RUSTFLAGS='--cfg zisk_skip_guest_build' cargo check
+```
+
+Under that flag, the macro expands to a placeholder `GuestProgram` with an empty ELF and empty hash. Useful for IDE static analysis; do not run a real build with it set.
+
+### Populating the environment variables
+
+The only reliable way to populate `ZISK_ELF_<name>` and `ZISK_ELF_HASH_<name>` for `load_program!` is a **host build script**. Cargo's `cargo:rustc-env=` directives only persist within the same Cargo invocation that emits them; running `cargo-zisk build` from a shell and then `cargo run` afterwards involves two separate Cargo invocations, so the env vars from the first do not reach the host compilation in the second.
+
+**Use `host/build.rs`.** Add a build script to the host crate. Cargo runs it before each host build, which rebuilds the guest in the same invocation and emits the env vars `load_program!` resolves:
+
+```rust title="host/build.rs"
+use zisk_sdk::build_program;
+
+fn main() {
+    build_program("../guest");
+}
+```
+
+The host crate also needs a build-dependency on `zisk-sdk` so the build script can compile:
+
+```toml title="host/Cargo.toml"
+[build-dependencies]
+zisk-sdk = { workspace = true }
+```
+
+With this in place a single `cargo run --release` always compiles the guest first, emits the env vars, then compiles the host. The standalone shell pattern (`cargo-zisk build` followed by `cargo run`) does not work for `load_program!` because the env vars do not cross the Cargo-invocation boundary.
+
+`build_program` has two siblings: `build_program_asm` (forces ASM-mode build), and `build_program_with_args(BuildArgs)` (full control over `--release`, `--features`, `--hints`, etc.). Reach for them only when the default is too coarse.
+
+**Need a runtime path instead?** Use [`GuestProgram::from_uri`](#from_uri) instead of `load_program!`. `from_uri` reads the ELF from disk at runtime and does not depend on any env var, so the standalone `cargo-zisk build` pattern works for it.
+
+---
+
+## Constructors
+
+Two runtime constructors complement `load_program!`. Use them when the ELF is selected dynamically (a CLI argument, a database lookup, an A/B test) and the literal-name pattern of the macro does not fit. Both produce a value of the same `GuestProgram` type, so downstream code is unchanged.
+
+### from\_uri
+
+Load a `GuestProgram` at runtime from a local file path or a `file://` URI. The bytes are read from disk, the blake3 hash is computed at construction time, and the program name is derived from the file stem.
+
+```rust
+pub fn from_uri(uri: &str) -> Result<GuestProgram>
+```
+
+#### Parameters
+
+| Name  | Type   | Description                                                                |
+| ----- | ------ | -------------------------------------------------------------------------- |
+| `uri` | `&str` | Local file path, or a URI with the `file://` scheme. Other schemes error. |
+
+The scheme parser splits on `://` and dispatches:
+
+- No scheme: the entire string is treated as a local path.
+- `file://`: the bytes after `file://` are the local path.
+- `http://` / `https://`: rejected with `HTTP loading not yet implemented`. The error message references a future `http` feature; do not depend on it landing.
+- Any other scheme: rejected with `Unknown URI scheme`.
+
+The file is read fully into memory before the function returns. The blake3 hash is computed once at construction; `program.hash()` afterwards is a free string lookup.
+
+The program `name` is the file stem (the last path segment without its extension). `target/.../release/hash-guest` becomes `"hash-guest"`. Stems collide easily across builds, so do not treat `name` as unique on its own; pair it with `hash_id` whenever uniqueness matters.
+
+#### Returns
+
+| Type                   | Description                                                |
+| ---------------------- | ---------------------------------------------------------- |
+| `Result<GuestProgram>` | A `GuestProgram` ready for `setup`, `upload`, and `prove`. |
+
+#### Errors
+
+| Condition                                     | Error                                       |
+| --------------------------------------------- | ------------------------------------------- |
+| File not found                                | `std::io::Error` (not found), wrapped       |
+| Permission denied                             | `std::io::Error` (permission denied)        |
+| URI scheme is `http://` or `https://`         | `HTTP loading not yet implemented` message  |
+| URI scheme is anything else                   | `Unknown URI scheme: <scheme>`              |
+
+`from_uri` does not validate the ELF format up front. Malformed bytes will surface later, when `client.setup` or `client.execute` parses the ROM. Validate eagerly with a quick `client.execute(&program, ZiskStdin::new())` if early rejection matters for your pipeline.
+
+#### Example
+
+```rust
+use zisk_sdk::GuestProgram;
+
+// From a local file path
+let program = GuestProgram::from_uri(
+    "target/elf/riscv64ima-zisk-zkvm-elf/release/hash-guest",
+)?;
+
+// From a file:// URI
+let program = GuestProgram::from_uri(
+    "file:///home/user/programs/hash-guest",
+)?;
+
+// Selecting a program at runtime based on user input
+let path = std::env::args().nth(1).expect("usage: host <elf-path>");
+let program = GuestProgram::from_uri(&path)?;
+```
+
+---
+
+### from\_bytes
+
+Construct a `GuestProgram` from ELF bytes that are already in memory, without reading from the filesystem. Use this when the bytes arrive over a custom transport (HTTP fetch, S3 object, in-process cache, message queue payload) where `from_uri` cannot help.
+
+```rust
+pub fn from_bytes(name: impl Into<String>, elf_data: Vec<u8>) -> GuestProgram
+```
+
+#### Parameters
+
+| Name       | Type                  | Description                                                              |
+| ---------- | --------------------- | ------------------------------------------------------------------------ |
+| `name`     | `impl Into<String>`   | Human-readable name to embed in the `ProgramId`. Caller chooses freely. |
+| `elf_data` | `Vec<u8>`             | The full ELF bytes. Ownership is moved into the returned program.       |
+
+The blake3 hash is computed at construction over the supplied bytes, so the resulting `program.hash()` matches what `from_uri` would have produced for the same file. The constructor is infallible at the type level: there is no `Result` because no I/O happens. ELF parse errors still surface later, the same way they do for `from_uri`.
+
+The `name` parameter is unconstrained. Picking a stable, audit-friendly value (the upstream artifact name, a release tag, etc.) makes log output easier to follow.
+
+#### Returns
+
+| Type            | Description                                                |
+| --------------- | ---------------------------------------------------------- |
+| `GuestProgram`  | A `GuestProgram` ready for `setup`, `upload`, and `prove`. |
+
+#### Example
+
+```rust
+use zisk_sdk::GuestProgram;
+
+// Bytes fetched over HTTP earlier in the program
+let elf_bytes: Vec<u8> = http_client.get("https://artifacts.example/hash-guest").await?.bytes().await?.to_vec();
+let program = GuestProgram::from_bytes("hash-guest", elf_bytes);
+```
+
+---
+
+## Methods
+
+The methods below are the everyday surface for inspecting a `GuestProgram`. Most callers only ever touch `program_id()` (for logging) and `vk()` (for verification). The rest exist for tooling and integration code.
+
+### elf
+
+Return the raw ELF bytes of the guest program.
+
+```rust
+pub fn elf(&self) -> &[u8]
+```
+
+#### Returns
+
+| Type    | Description                    |
+| ------- | ------------------------------ |
+| `&[u8]` | The raw ELF binary byte slice. |
+
+A borrow into the underlying `Cow<'static, [u8]>`; cheap and never copies. The slice is valid for as long as the `GuestProgram` is borrowed.
+
+Use it when you need the bytes themselves rather than the SDK's interpretation of them. The most common cases are forwarding the binary to a remote system, computing an independent hash for an audit record, or writing the embedded ELF back to disk for tooling that expects a file path.
+
+```rust
+let bytes = program.elf();
+println!("ELF size: {} bytes", bytes.len());
+
+// Write to a temporary file
+std::fs::write("/tmp/guest.elf", bytes)?;
+```
+
+For the proving pipeline itself, `client.setup` / `execute` / `prove` already accept `&program` directly; you do not need to hand them `elf()` separately.
+
+---
+
+### name
+
+Return the human-readable name of the guest program.
+
+```rust
+pub fn name(&self) -> &str
+```
+
+#### Returns
+
+| Type   | Description                                                |
+| ------ | ---------------------------------------------------------- |
+| `&str` | The program name, derived from the ELF path or crate name. |
+
+The source of the name depends on how the `GuestProgram` was constructed:
+
+- `load_program!("hash-guest")` produces `"hash-guest"` (the macro literal verbatim).
+- `from_uri(".../release/hash-guest")` produces `"hash-guest"` (the file stem of the path).
+- `from_bytes("custom-name", bytes)` produces whatever string the caller chose.
+
+The name is used in log messages and in the `Display` output of `ProgramId`. It is **not guaranteed to be unique**. Two different builds of the same crate produce the same name but different `hash_id`s. When you need a stable identifier across builds, use `hash()` or the full `ProgramId` instead.
+
+```rust
+println!("Proving: {}", program.name());
+// e.g. "Proving: hash-guest"
+```
+
+---
+
+### hash
+
+Return the blake3 hash of the ELF binary as a lowercase hex string.
+
+```rust
+pub fn hash(&self) -> &str
+```
+
+#### Returns
+
+| Type   | Description                                        |
+| ------ | -------------------------------------------------- |
+| `&str` | Hex-encoded blake3 hash of the ELF bytes (64 hex characters). |
+
+The hash is computed once at construction and stored inside the `ProgramId`. Calling `hash()` is a free string lookup; no rehashing happens.
+
+It is a content hash over the ELF bytes, so two different bin targets that produce byte-identical ELFs share the same hash, and a one-bit change to the source produces a completely different hash. The most common uses:
+
+- **Detect stale proving artifacts.** The setup directory on disk is keyed by hash; comparing the cached hash against the live one catches a guest source change that would otherwise be proven against the old artifacts.
+- **Tag proofs in audit logs.** Including the hash alongside each proof record makes it auditable which exact build produced which proof.
+- **Defend against ELF substitution.** Verifying the hash of an incoming ELF against a known-good value (signed by the build pipeline, for example) keeps a malicious replacement from sneaking past automated steps.
+
+```rust
+println!("ELF hash: {}", program.hash());
+// e.g. "ELF hash: 3a7f2c8d…"
+
+// Guard against stale proving keys
+if stored_hash != program.hash() {
+    client.setup(&PROGRAM).run()?;
+}
+```
+
+`hash()` is a shorthand for `program.program_id().get_hash()`. The two return the same string.
+
+---
+
+### program\_id
+
+Return a reference to the `ProgramId` of the guest program.
+
+```rust
+pub fn program_id(&self) -> &ProgramId
+```
+
+#### Returns
+
+| Type         | Description                                  |
+| ------------ | -------------------------------------------- |
+| `&ProgramId` | The program identity (name + blake3 hash).   |
+
+`ProgramId` is the smallest unit that uniquely identifies the binary. The full struct (`name` + `hash_id`) is a more useful identifier than either field on its own: `name` is human-readable but not unique; `hash_id` is unique but not human-readable. Together they are loggable and unambiguous.
+
+`ProgramId` implements `Display` as `"name:hash_id"`. The combined form is what you want in logs, audit records, cache keys, and anywhere a stable identifier is captured alongside output:
+
+```rust
+let id = program.program_id();
+
+// Structured logging
+println!("program_id={id}");
+// e.g. "program_id=hash-guest:3a7f2c8d…"
+
+// Cache key for proving artifacts
+let artifact_path = format!("keys/{}", id);
+```
+
+The reference is borrowed from the program; it is valid for as long as the `GuestProgram` is borrowed.
+
+---
+
+### vk (program verification key)
+
+Return the **program verification key** for this guest.
+
+```rust
+pub fn vk(&self) -> Result<ProgramVK>
+```
+
+#### Returns
+
+| Type                | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `Result<ProgramVK>` | The 32-byte program verification key, or an error if derivation fails. |
+
+`ProgramVK` is a 32-byte commitment to the guest's ROM, computed by walking the Merkle structure ZisK builds over the ELF's instruction stream during `program-setup`. It is what binds a proof to a specific guest program: a verifier holding the same `ProgramVK` will only accept proofs for that exact ELF.
+
+#### What this method actually does
+
+`vk()` is not a free getter. Each call runs `rom_merkle_setup_verkey` over the ELF bytes, which is the same ROM-Merkle traversal `cargo-zisk program-setup` performs. For small guests it is fast (milliseconds); for large guests it is noticeably more expensive than a hash. Cache the result if you call it more than once for the same program.
+
+```rust
+use std::sync::OnceLock;
+use zisk_sdk::ProgramVK;
+
+static VK: OnceLock<ProgramVK> = OnceLock::new();
+
+let vk = VK.get_or_init(|| PROGRAM.vk().expect("vk derivation failed"));
+```
+
+#### Why you would call it directly
+
+A `Proof` already carries a `program_vk` field, populated by the prover at proof time. So `proof.verify()` works without ever touching `program.vk()`. The method matters in exactly the cases where the verifier should *not* trust the embedded value:
+
+- **Verifying against an externally-trusted program:** the verifier holds the canonical `ProgramVK` for an audited guest (signed by the auditor, pinned in a config file, anchored on-chain). Passing that VK to `proof.with_program_vk(&trusted_vk).verify()` rejects proofs whose embedded VK does not match, even if the proof itself is internally consistent. This defends against a malicious prover who substitutes the embedded VK for one tied to a different guest.
+- **Recomputing the VK at audit time:** rebuild the audited ELF from source, derive its VK, and compare against the value pinned in production. A mismatch means the deployed binary is not what was audited.
+- **Cross-system verification:** a second system (Solidity verifier, separate Rust verifier, audit tool) needs the VK out of band rather than from the proof file. Serialise the result of `vk()` and ship it through whatever channel that system reads from.
+
+#### Errors
+
+The method returns `Err` when the ROM Merkle setup cannot complete. The realistic causes are a malformed ELF (bytes that do not parse as a ZisK ROM) or a system that cannot allocate enough memory for the setup pass on a very large guest. Well-formed ELFs produced by `cargo-zisk build` succeed.
+
+#### Example
+
+```rust
+use zisk_sdk::ProgramVK;
+
+// Derive once, cache for the rest of the process lifetime.
+let vk: ProgramVK = PROGRAM.vk()?;
+
+// Persist out-of-band (audit record, signed config, etc.)
+let vk_bytes = serde_json::to_vec(&vk)?;
+write_to_audit_record(&vk_bytes)?;
+
+// At verify time, pin the proof to the trusted VK.
+proof.with_program_vk(&vk).verify()?;
+```
+
+See [`Proof::with_program_vk`](/references/zisk-sdk/proof#proofwith_program_vk) for the verification-side counterpart.

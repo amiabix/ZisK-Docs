@@ -1,0 +1,123 @@
+---
+id: register-guest-program
+title: RegisterGuestProgram
+sidebar_position: 2
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Upload a compiled guest ELF and obtain its
+  content-addressed hash_id.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Registers a guest program with the coordinator. Idempotent:
+uploading the same ELF returns the same `hash_id`. Every later
+job submission references the program by this `hash_id`.
+
+</Summary>
+
+## Signature
+
+```proto
+rpc RegisterGuestProgram(RegisterGuestProgramRequest)
+    returns (RegisterGuestProgramResponse);
+```
+
+| Property | Value |
+| -------- | ----- |
+| Direction | Unary |
+| Idempotent | Yes |
+| Streams | None |
+
+## Request
+
+```proto
+message RegisterGuestProgramRequest {
+  bytes zisk_elf = 1;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `zisk_elf` | `bytes` | The compiled ZisK ELF binary. Typically the contents of `target/elf/riscv64ima-zisk-zkvm-elf/release/<name>`. |
+
+The full ELF is sent in one RPC. There is no chunking; gRPC
+message size limits apply. The default coordinator build
+accepts large messages on this RPC; if your client enforces a
+default `max_decoding_message_size`, raise it.
+
+## Response
+
+```proto
+message RegisterGuestProgramResponse {
+  string hash_id = 1; // blake3 content hash of zisk_elf
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `hash_id` | `string` | Hex-encoded blake3 hash of the ELF bytes. Used as the program identifier in every later job submission. |
+
+The `hash_id` is a 64-character lowercase hex string (the
+32-byte blake3 digest, hex-encoded). It is purely a content
+hash. It does not change across coordinator restarts and does
+not depend on registration order. Two clients uploading the
+same ELF receive the same `hash_id`, and an ELF rebuilt from
+the same source with deterministic flags will hash identically.
+
+## Behaviour
+
+- **First upload of a new ELF**: the coordinator stores the ELF
+  on disk under its `hash_id` and returns it to the caller.
+- **Re-upload of an already-registered ELF**: the coordinator
+  recognises the content hash and returns the existing
+  `hash_id` without re-storing. The call is cheap.
+- **Concurrent first uploads**: safely deduplicated. The second
+  caller observes the first caller's stored ELF.
+
+Uploading the ELF is **not the same as setting it up for
+proving**. After registration, you still need to submit a
+`SetupRequest` (via `JobRequest`) before the first `Prove` /
+`Execute` for that program will succeed. See
+[JobRequest](./job-request).
+
+## Errors
+
+| gRPC status | Error | When |
+| ----------- | ----- | ---- |
+| `InvalidArgument` | (no specific code) | The `zisk_elf` field is empty or not a valid ELF for the ZisK target. |
+| `Internal` | `INTERNAL` (3001) | Coordinator failed to write the ELF to disk. |
+
+See [Errors](./errors) for the full error table and recovery
+guidance.
+
+## Example
+
+```rust title="Direct gRPC call (Rust + tonic)"
+use zisk_coordinator_api::v1::{
+    zisk_coordinator_api_client::ZiskCoordinatorApiClient,
+    RegisterGuestProgramRequest,
+};
+
+let mut client = ZiskCoordinatorApiClient::connect("http://prover:7000").await?;
+
+let elf = std::fs::read("target/elf/riscv64ima-zisk-zkvm-elf/release/hash-guest")?;
+let resp = client
+    .register_guest_program(RegisterGuestProgramRequest { zisk_elf: elf })
+    .await?
+    .into_inner();
+
+println!("hash_id = {}", resp.hash_id);
+```
+
+The high-level [`ProverClient`](/references/zisk-sdk/prover-client) calls this RPC when you invoke `client.upload(&PROGRAM).run()?` and caches the `hash_id` for the rest of the process lifetime. `client.setup(&PROGRAM)` does **not** upload the ELF; it only sends `{ hash_id, program_name, with_hints }` to the coordinator. Always call `upload` before `setup` on a remote client.
+
+## See also
+
+- [JobRequest](./job-request): submit jobs against the returned
+  `hash_id`.
+- [SetupRequest](./job-request#setup): derive the proving keys
+  before the first prove call.

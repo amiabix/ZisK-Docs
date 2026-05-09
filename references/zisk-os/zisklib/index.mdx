@@ -1,0 +1,47 @@
+---
+id: index
+title: zisklib
+sidebar_position: 1
+description: >
+  High-level safe wrappers over VM syscalls for hashing, elliptic
+  curve arithmetic, and pairings, provided by zisklib.
+displayed_sidebar: referencesSidebar
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="ZiskLib is the high-level safe layer over the VM syscalls.
+  Each function dispatches to a dedicated state machine inside the zkVM,
+  covering hash functions and elliptic curve arithmetic for secp256k1,
+  secp256r1, BN254, and BLS12-381.">
+  <PageCard
+    href="/references/zisk-os/zisklib/hash-functions"
+    tag="Reference" tagColor="blue"
+    title="Hash Functions"
+    description="SHA-256, Keccak-256, and BLAKE2b compression. Safe wrappers over the hash syscalls."
+  />
+  <PageCard
+    href="/references/zisk-os/zisklib/secp256k1"
+    tag="Reference" tagColor="blue"
+    title="secp256k1"
+    description="Base field Fp, scalar field Fn, curve arithmetic, and ECDSA verify and recover over secp256k1."
+  />
+  <PageCard
+    href="/references/zisk-os/zisklib/secp256r1"
+    tag="Reference" tagColor="blue"
+    title="secp256r1 (P-256)"
+    description="Base field Fp, scalar field Fn, curve arithmetic, and ECDSA verification over P-256."
+  />
+  <PageCard
+    href="/references/zisk-os/zisklib/bn254"
+    tag="Reference" tagColor="blue"
+    title="BN254"
+    description="Fp, Fp2, Fr arithmetic, G1 point operations, scalar multiplication, and optimal Ate pairing."
+  />
+  <PageCard
+    href="/references/zisk-os/zisklib/bls12-381"
+    tag="Reference" tagColor="blue"
+    title="BLS12-381"
+    description="Fp, Fp2, Fr arithmetic, G1/G2 operations, MSM, KZG verification, hash-to-curve, and Ate pairing."
+  />
+</IndexPage>

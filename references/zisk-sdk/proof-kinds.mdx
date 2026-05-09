@@ -1,0 +1,262 @@
+---
+id: proof-kinds
+title: ProofKind
+sidebar_position: 8
+displayed_sidebar: referencesSidebar
+description: Enum selecting the output proof format. Choose by where the proof
+  will be verified.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`ProofKind` selects the output proof format for a prove run. Three variants exist: `VadcopFinal` (default, fastest), `VadcopFinalMinimal` (compressed STARK), and `Plonk` (smallest, required for on-chain EVM verification).
+
+</Summary>
+
+## What ProofKind is
+
+`ProofKind` is the enum that tags a proof's format. The variant determines proof size, generation cost, and where the proof can be verified.
+
+```rust
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProofKind {
+    #[default]
+    VadcopFinal,
+    VadcopFinalMinimal,
+    Plonk,
+}
+```
+
+The variant lives in two places at runtime: inside every `Proof` (so the verifier knows which path to take) and inside every `ProveRequest` (so the prover knows which format to emit). Both use the same enum.
+
+The `#[default]` is `VadcopFinal`. A freshly-constructed `ProveRequest` carries `ProofKind::default()` until something overrides it.
+
+## When to use each
+
+| Variant              | Size       | Generation time   | Verifier              | When to choose                                                                   |
+| -------------------- | ---------- | ----------------- | --------------------- | -------------------------------------------------------------------------------- |
+| `VadcopFinal`        | Largest    | Fastest           | Vadcop                | Off-chain proving where speed matters and proof size does not. Default.          |
+| `VadcopFinalMinimal` | Compressed | Slightly slower   | Vadcop                | Off-chain distribution where bandwidth or storage matters.                       |
+| `Plonk`              | Smallest   | Slowest (by far)  | Plonk (EVM-compatible) | On-chain EVM verification via ZiskVerifier contracts. Only needed for that case. |
+
+`VadcopFinal` is the right default for everything that is not on-chain. The two wrap targets (Minimal and Plonk) trade additional proving cost for a different output property: smaller bytes for off-chain transport, or on-chain verifiability.
+
+`Plonk` is required for the EVM path and not useful for anything else: Plonk proofs cannot be verified in-circuit by an aggregation guest, so they cannot be used as leaves in recursive proving.
+
+## Where the kind is set
+
+Two SDK surfaces hold a `ProofKind` field, and they do different things. Treating them as equivalent is the most common source of confusion.
+
+### Builder field: `proof_kind` capability
+
+`EmbeddedClientBuilder.proof_kind` is set at client construction. Its job is to tell the prover backend whether to load Plonk machinery at startup. The builder consumes the field once, in `.build()`, and converts it into a `plonk: bool` flag on the prover (`embedded.rs:151-152, 164, 183`).
+
+- The default builder field is `VadcopFinalMinimal`.
+- `.plonk()` flips it to `Plonk`, which makes the prover Plonk-capable.
+- `.plonk()` does **not** change what proof kind subsequent prove calls emit.
+
+If you intend to emit Plonk proofs, you must enable Plonk capability on the builder (via `.plonk()` or `EmbeddedOpts::preload_plonk()`). Without it, a request that asks for Plonk fails at wrap time because the prover has no Plonk keys loaded.
+
+### Request field: `proof_kind` output
+
+`ProveRequest.proof_kind` is set per prove call. Its job is to tell the prover which format the resulting `Proof` should carry (`prove.rs:89, 121-124`).
+
+- The default request field is `ProofKind::default()` = `VadcopFinal`.
+- `.wrap(ProofKind::X)` sets the field directly.
+- The actual output proof has `proof_kind == X`.
+
+The dispatch happens inside `do_prove_inner` (`embedded/prove.rs:52-62`):
+
+```rust
+match proof_kind {
+    ProofKind::VadcopFinal           => $builder,                              // no wrap
+    ProofKind::VadcopFinalMinimal    => $builder.wrap_proof(ProofKind::VadcopFinalMinimal),
+    ProofKind::Plonk                 => $builder.wrap_proof(ProofKind::Plonk),
+}
+```
+
+`VadcopFinal` is a pass-through; the prover emits the raw final proof. The other two ask the prover to wrap the result.
+
+### Putting them together
+
+To emit Plonk proofs, set the kind on **both** sides:
+
+```rust
+let client = ProverClient::embedded()
+    .plonk()                // builder: load Plonk keys
+    .build()?;
+
+let result = client
+    .prove(&program, stdin)
+    .wrap(ProofKind::Plonk) // request: emit Plonk
+    .run()?
+    .await?;
+```
+
+To emit Vadcop proofs (default), neither call is needed:
+
+```rust
+let client = ProverClient::embedded().build()?;
+let result = client.prove(&program, stdin).run()?.await?;  // VadcopFinal
+```
+
+To emit `VadcopFinalMinimal`, use `.wrap(ProofKind::VadcopFinalMinimal)` on the request. No builder-side capability flag is required; the Vadcop machinery is always loaded.
+
+## Wire-format integer mapping
+
+`ProofKind` has `From<i32>` and `From<ProofKind> for i32` impls (`common/src/proof.rs:53-71`) for protocol-level serialisation:
+
+| `i32` | `ProofKind`          |
+| ----- | -------------------- |
+| `0`   | `VadcopFinal`        |
+| `1`   | `VadcopFinalMinimal` |
+| `2`   | `Plonk`              |
+
+`From<i32>` is permissive: any value that is not `1` or `2` maps to `VadcopFinal`. This means a wire message with an unrecognised proof-kind value silently deserialises to `VadcopFinal` rather than producing an error.
+
+The Coordinator gRPC API uses a slightly different numbering (`PROOF_KIND_UNSPECIFIED = 0`, `PROOF_KIND_STARK = 1`, `PROOF_KIND_STARK_MINIMAL = 2`, `PROOF_KIND_PLONK = 3`) and the SDK's wire bridge maps between the two; you only need to care about the SDK numbering when interacting with `From<i32>` directly.
+
+---
+
+## VadcopFinal
+
+The default Vadcop format. Largest proof, fastest to generate.
+
+```rust
+ProofKind::VadcopFinal
+```
+
+| Property                  | Value                                       |
+| ------------------------- | ------------------------------------------- |
+| Default                   | Yes (`#[default]`)                          |
+| Verifiable on-chain       | No                                          |
+| Verifiable off-chain      | Yes, via `proof.verify()`                   |
+| Recursive verification    | Yes (via `io::verify_zisk_proof` in a guest)|
+| Verifier path             | `verify_vadcop_final` (`proof.rs:445`)      |
+| Wrap step at prove time   | None (pass-through)                         |
+
+The simplest path. The prover runs to completion and writes the result directly into `Proof.proof_bytes`. No additional wrapping circuit runs at prove time.
+
+`VadcopFinal` is the right choice for off-chain proving in CI, aggregation pipelines, and anywhere the proof is consumed by another ZisK guest or by a Rust-side verifier. Pick another variant only when the consumer specifically requires it.
+
+#### Example
+
+```rust
+// Default; no .wrap() call needed.
+let result = client.prove(&program, stdin).run()?.await?;
+assert_eq!(result.proof_kind, ProofKind::VadcopFinal);
+```
+
+---
+
+## VadcopFinalMinimal
+
+Compressed Vadcop format. Smaller proof, slightly slower to generate.
+
+```rust
+ProofKind::VadcopFinalMinimal
+```
+
+| Property                  | Value                                       |
+| ------------------------- | ------------------------------------------- |
+| Default                   | No                                          |
+| Verifiable on-chain       | No                                          |
+| Verifiable off-chain      | Yes, via `proof.verify()`                   |
+| Recursive verification    | Yes (via `io::verify_zisk_proof` in a guest)|
+| Verifier path             | `verify_vadcop_final_compressed` (`proof.rs:443`) |
+| Wrap step at prove time   | `wrap_proof(VadcopFinalMinimal)`            |
+
+Wraps the final Vadcop proof in a recursive STARK verification circuit, producing a noticeably smaller proof at the cost of additional proving overhead. The Vadcop machinery is always loaded, so no builder-side capability flag is needed.
+
+Choose `VadcopFinalMinimal` when off-chain proof size matters: bandwidth-limited networks, distributed aggregation across slow links, or storage-constrained archives. Off-chain verification cost is similar to `VadcopFinal`; only the proof bytes get smaller.
+
+#### Example
+
+```rust
+let result = client.prove(&program, stdin)
+    .wrap(ProofKind::VadcopFinalMinimal)
+    .run()?.await?;
+```
+
+---
+
+## Plonk
+
+Plonk format. Smallest proof, slowest to generate. Required for on-chain EVM verification.
+
+```rust
+ProofKind::Plonk
+```
+
+| Property                  | Value                                       |
+| ------------------------- | ------------------------------------------- |
+| Default                   | No                                          |
+| Verifiable on-chain       | Yes (EVM via ZiskVerifier contracts)         |
+| Verifiable off-chain      | Yes, via `proof.verify()`                   |
+| Recursive verification    | No (Plonk proofs cannot be verified in-circuit) |
+| Verifier path             | `verify_snark_proof` (`proof.rs:424`)       |
+| Wrap step at prove time   | `wrap_proof(Plonk)`                         |
+| Builder capability        | Required: `.plonk()` or `EmbeddedOpts::preload_plonk()` |
+
+Wraps the Vadcop final proof in a SNARK verifier instead of another STARK. The result is a constant-size proof verifiable inside Solidity contracts. Plonk is the only format Solidity verifiers accept and the only choice for on-chain verification.
+
+Plonk proofs cannot be used as leaves in an aggregation tree because a Plonk proof cannot be verified inside another ZisK guest's circuit. If you need both on-chain verifiability AND recursive aggregation, prove `VadcopFinal` first, aggregate as needed, then wrap the final aggregated proof to Plonk via [`WrapRequest`](#conversion-via-wraprequest).
+
+#### Example
+
+```rust
+// Builder: load Plonk keys.
+let client = ProverClient::embedded()
+    .plonk()
+    .build()?;
+
+// Request: emit Plonk.
+let result = client.prove(&program, stdin)
+    .wrap(ProofKind::Plonk)
+    .run()?.await?;
+```
+
+:::warning
+Plonk proof generation is computationally expensive. Allocate sufficient time and resources; generation time scales with guest program complexity. The Plonk verifier key must be installed: `ziskup setup_snark` downloads it, or `wrap-proof --plonk` from the CLI uses the same key tree.
+:::
+
+---
+
+## Conversion via WrapRequest
+
+Convert an existing proof to a different format without re-executing the guest.
+
+```rust
+let vadcop_proof = Proof::load("proof.bin")?;
+
+let plonk_proof = client
+    .wrap_proof(&vadcop_proof, ProofKind::Plonk)
+    .run()?.await?;
+
+plonk_proof.save("proof_plonk.bin")?;
+```
+
+`WrapRequest` is the right tool when:
+
+- An existing `VadcopFinal` proof on disk needs to be repackaged for a different verifier.
+- The aggregation tree finished in `VadcopFinal` and the final result needs to become Plonk for on-chain submission.
+- A storage system holds `VadcopFinal` proofs and a downstream consumer requires `VadcopFinalMinimal`.
+
+`WrapRequest` accepts overrides for public values and program verification key via `.with_publics()` and `.with_program_vk()` if the wrapped proof needs to attest to different values than the source proof carries. See [Pipeline requests](/references/zisk-sdk/pipeline-requests) for the full surface.
+
+A few constraints are worth knowing:
+
+- The source proof must be `VadcopFinal`. Wrapping `VadcopFinalMinimal` or `Plonk` to another format is not supported.
+- Wrapping is significantly cheaper than proving (it operates on an already-generated proof rather than re-running execution), but Plonk wrapping is still expensive in absolute terms.
+- The client must be Plonk-capable to wrap into Plonk: configure with `.plonk()` on the builder, or `EmbeddedOpts::preload_plonk()` if you only need the keys loaded.
+
+---
+
+## See also
+
+- [Proof](/references/zisk-sdk/proof): the `Proof` struct that carries the kind.
+- [Pipeline requests](/references/zisk-sdk/pipeline-requests): `ProveRequest::wrap` and `WrapRequest`.
+- [Client builders](/references/zisk-sdk/prover-client-builder): `.plonk()` capability flag and Plonk-key options.
+- [Choosing a proof format](/developer/proving-programs/proof-format): higher-level guidance on when to pick each variant.

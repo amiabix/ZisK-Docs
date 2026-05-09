@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1240 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.byte-box rect { fill: #FFFFFF; stroke: #15161D; stroke-width: 1; }
+.byte-box text.label { fill: #15161D; font-weight: 500; font-size: 13px; }
+.byte-gap rect { fill: #F7F8FA; stroke: #B9B9C5; stroke-width: 1; stroke-dasharray: 3 3; }
+.byte-gap text.label { fill: #7E7F8C; font-weight: 400; font-size: 13px; font-style: italic; }
+.byte-num { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+.caption { font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; fill: #4A4C59; font-style: italic; }
+    ]]></style>
+  </defs>
+
+  <!-- Row 1 (y=60): byte 0-7 ZisK + 8-31 no-code. Width per 8-byte unit = 275 px. -->
+  <g class="byte-box">
+    <rect x="60" y="60" width="275" height="50" rx="2"/>
+    <text class="label" x="197" y="92" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-gap">
+    <rect x="335" y="60" width="825" height="50" rx="2"/>
+    <text class="label" x="747" y="92" text-anchor="middle">- no code -</text>
+  </g>
+  <text class="byte-num" x="60" y="50">0</text>
+  <text class="byte-num" x="331" y="50" text-anchor="end">7</text>
+  <text class="byte-num" x="339" y="50">8</text>
+  <text class="byte-num" x="1160" y="50" text-anchor="end">31</text>
+
+  <!-- Row 2 (y=140): byte 32-39 ZisK + 40-63 no-code -->
+  <g class="byte-box">
+    <rect x="60" y="140" width="275" height="50" rx="2"/>
+    <text class="label" x="197" y="172" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-gap">
+    <rect x="335" y="140" width="825" height="50" rx="2"/>
+    <text class="label" x="747" y="172" text-anchor="middle">- no code -</text>
+  </g>
+  <text class="byte-num" x="60" y="130">32</text>
+  <text class="byte-num" x="331" y="130" text-anchor="end">39</text>
+  <text class="byte-num" x="339" y="130">40</text>
+  <text class="byte-num" x="1160" y="130" text-anchor="end">63</text>
+
+  <!-- Row 3 (y=220): byte 64-71, 72-79, 80-87 ZisK + 88-95 no-code (atomic A → 3 ZisK) -->
+  <g class="byte-box">
+    <rect x="60" y="220" width="275" height="50" rx="2"/>
+    <text class="label" x="197" y="252" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-box">
+    <rect x="335" y="220" width="275" height="50" rx="2"/>
+    <text class="label" x="472" y="252" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-box">
+    <rect x="610" y="220" width="275" height="50" rx="2"/>
+    <text class="label" x="747" y="252" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-gap">
+    <rect x="885" y="220" width="275" height="50" rx="2"/>
+    <text class="label" x="1022" y="252" text-anchor="middle">- no code -</text>
+  </g>
+  <text class="byte-num" x="60" y="210">64</text>
+  <text class="byte-num" x="331" y="210" text-anchor="end">71</text>
+  <text class="byte-num" x="339" y="210">72</text>
+  <text class="byte-num" x="606" y="210" text-anchor="end">79</text>
+  <text class="byte-num" x="614" y="210">80</text>
+  <text class="byte-num" x="881" y="210" text-anchor="end">87</text>
+  <text class="byte-num" x="889" y="210">88</text>
+  <text class="byte-num" x="1160" y="210" text-anchor="end">95</text>
+
+  <!-- Row 4 (y=300): 96 ZisK + 104 no-code + 112 ZisK + 120 no-code -->
+  <g class="byte-box">
+    <rect x="60" y="300" width="275" height="50" rx="2"/>
+    <text class="label" x="197" y="332" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-gap">
+    <rect x="335" y="300" width="275" height="50" rx="2"/>
+    <text class="label" x="472" y="332" text-anchor="middle">- no code -</text>
+  </g>
+  <g class="byte-box">
+    <rect x="610" y="300" width="275" height="50" rx="2"/>
+    <text class="label" x="747" y="332" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-gap">
+    <rect x="885" y="300" width="275" height="50" rx="2"/>
+    <text class="label" x="1022" y="332" text-anchor="middle">- no code -</text>
+  </g>
+  <text class="byte-num" x="60" y="290">96</text>
+  <text class="byte-num" x="331" y="290" text-anchor="end">103</text>
+  <text class="byte-num" x="339" y="290">104</text>
+  <text class="byte-num" x="606" y="290" text-anchor="end">111</text>
+  <text class="byte-num" x="614" y="290">112</text>
+  <text class="byte-num" x="881" y="290" text-anchor="end">119</text>
+  <text class="byte-num" x="889" y="290">120</text>
+  <text class="byte-num" x="1160" y="290" text-anchor="end">127</text>
+
+  <!-- Row 5 (y=380): byte 128-143 no-code (single 16-byte) + 144 ZisK + 152 ZisK -->
+  <g class="byte-gap">
+    <rect x="60" y="380" width="550" height="50" rx="2"/>
+    <text class="label" x="335" y="412" text-anchor="middle">- no code -</text>
+  </g>
+  <g class="byte-box">
+    <rect x="610" y="380" width="275" height="50" rx="2"/>
+    <text class="label" x="747" y="412" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-box">
+    <rect x="885" y="380" width="275" height="50" rx="2"/>
+    <text class="label" x="1022" y="412" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <text class="byte-num" x="60" y="370">128</text>
+  <text class="byte-num" x="606" y="370" text-anchor="end">143</text>
+  <text class="byte-num" x="614" y="370">144</text>
+  <text class="byte-num" x="881" y="370" text-anchor="end">151</text>
+  <text class="byte-num" x="889" y="370">152</text>
+  <text class="byte-num" x="1160" y="370" text-anchor="end">159</text>
+
+  <!-- Row 6 (y=460): byte 160-167 ZisK + 168-191 no-code -->
+  <g class="byte-box">
+    <rect x="60" y="460" width="275" height="50" rx="2"/>
+    <text class="label" x="197" y="492" text-anchor="middle">ZisK instruction</text>
+  </g>
+  <g class="byte-gap">
+    <rect x="335" y="460" width="825" height="50" rx="2"/>
+    <text class="label" x="747" y="492" text-anchor="middle">- no code -</text>
+  </g>
+  <text class="byte-num" x="60" y="450">160</text>
+  <text class="byte-num" x="331" y="450" text-anchor="end">167</text>
+  <text class="byte-num" x="339" y="450">168</text>
+  <text class="byte-num" x="1160" y="450" text-anchor="end">191</text>
+
+  <text class="caption" x="610" y="560" text-anchor="middle">ZisK code layout</text>
+</svg>

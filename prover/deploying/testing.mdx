@@ -1,0 +1,372 @@
+---
+id: testing
+sidebar_position: 3
+title: Testing your deployment
+description: Verify your cluster works end to end by submitting a real proving job from a small Rust host program.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+A cluster is "deployed" when its processes are up and the
+metrics endpoint responds. It is **working** when a real
+proving job goes through it and the resulting proof
+verifies. This page walks through writing a tiny Rust host
+program that submits one job to your cluster, watching what
+happens at each stage, and using the result as both a smoke
+test of the deployment and a working template for a real
+production host application.
+
+</Summary>
+
+## The shape of the test
+
+The test you are going to run is the smallest end to end
+exercise of the cluster. It calls `setup` once on the
+coordinator, then calls `prove` once with a small input,
+then verifies the returned proof locally.
+
+![Diagram: Test host · Coordinator](/diagrams/svgs/45-prover-testing-1.svg)
+
+A successful run is a strong signal that every component
+of the cluster is functioning correctly. The host can
+reach the coordinator, the coordinator can reach at least
+one worker, the worker can prove a segment, the
+aggregation tree works, and the verifier accepts the
+result. Any one of those failing produces a recognisable
+error in the host program's output, which makes this the
+cheapest possible end to end check of a freshly deployed
+cluster.
+
+---
+
+## Prerequisites
+
+Before running the test you need a cluster that is
+reachable from the host you will run the test on. For the
+[Linux server deployment](./linux-server), the
+coordinator host's port 7000 must be reachable from the
+test host. For the [Docker Compose
+deployment](./docker-compose), port 7001 on whichever host
+runs the compose stack must be reachable.
+
+You also need a guest program ELF on disk. We will reuse
+the `hash-guest` from [Your first
+proof](/developer/proving-programs/first-proof), but any
+compiled ZisK guest works equally well.
+
+The test program itself is a new Rust binary crate with a
+few dependencies in its `Cargo.toml`:
+
+```toml title="Cargo.toml"
+[dependencies]
+zisk-sdk = { workspace = true }
+tokio    = { version = "1", features = ["macros", "rt-multi-thread"] }
+anyhow   = "1"
+hex      = "0.4"
+```
+
+The test crate runs locally on whatever machine you choose.
+It does not need to be deployed anywhere; it just needs to
+be able to talk to the cluster you already deployed.
+
+---
+
+## Embedded versus remote: the one line that changes
+
+Before writing the test program itself, it is worth seeing
+the only line that changes between a host application
+that uses the embedded prover and one that uses a remote
+cluster. The difference is the `ProverClient` constructor,
+and that is it. Every operation downstream (`setup`,
+`execute`, `prove`, `wrap_proof`, `upload`, `verify`) has
+the same call signature on either client.
+
+```rust title="host/src/main.rs"
+// Embedded: runs the prover in your process. Used during
+// development against a laptop.
+let client = ProverClient::embedded().build()?;
+
+// Remote: talks to your cluster. Used in tests, CI, production.
+let client = ProverClient::remote("http://prover.example.com:7000").build()?;
+```
+
+The proof object the cluster returns is the same `Proof`
+object that an embedded prover returns, and the verifier
+accepts both interchangeably. This symmetry is what makes
+the SDK practical to develop against. You can build and
+test locally against the embedded prover with no cluster
+running, and then point the same code at the cluster by
+changing one line.
+
+:::tip
+A common production pattern is to gate the constructor on
+the build configuration so that debug builds use the
+embedded prover (fast iteration) and release builds use
+the remote cluster (real proving). The pattern looks like
+the snippet below, and it lets the same source code do
+both jobs without any other changes.
+
+```rust
+let client = if cfg!(debug_assertions) {
+    ProverClient::embedded().build()?
+} else {
+    ProverClient::remote(env::var("ZISK_COORDINATOR_URL")?).build()?
+};
+```
+:::
+
+---
+
+## A complete test program
+
+The test program below is everything you need: it
+constructs a remote client with sensible timeouts, runs
+`setup`, builds an input, calls `prove`, verifies the
+proof locally, and prints the resulting digest.
+
+```rust title="host/src/main.rs"
+use std::time::Duration;
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!("hash-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Point at your deployed coordinator.
+    // - Linux server deployment:    http://<coordinator-host>:7000
+    // - Docker Compose deployment:  http://127.0.0.1:7001
+    let coordinator_url = std::env::var("ZISK_COORDINATOR_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:7000".to_string());
+
+    let client = ProverClient::remote(coordinator_url)
+        .connect_timeout(Duration::from_secs(5))
+        .request_timeout(Duration::from_secs(900))
+        .build()?;
+
+    // Remote backend: upload the ELF before setup so the coordinator
+    // can register it. Embedded backends do not need this call.
+    println!("upload…");
+    client.upload(&PROGRAM).run()?;
+
+    println!("setup…");
+    client.setup(&PROGRAM).run()?.await?;
+
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&"Hello Zisk".to_string());
+
+    println!("prove…");
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+
+    println!("verify…");
+    proof.verify()?;
+
+    let mut digest = [0u8; 32];
+    proof.get_public_values_slice(&mut digest);
+    println!("verified digest = 0x{}", hex::encode(digest));
+    Ok(())
+}
+```
+
+Two notes on the code are worth pausing on. The `?.await?`
+pattern on `client.setup(...)` and `client.prove(...)` is
+the same pattern the embedded SDK uses; the first `?`
+propagates errors from constructing the in flight request,
+and the `await?` propagates errors from the actual remote
+operation. The `request_timeout(900s)` is generous on
+purpose. Real workloads can take many minutes, and a short
+timeout will time out the host even though the cluster is
+still proving. Sizing this knob comes up below.
+
+---
+
+## Run it and watch what happens
+
+Run the test program with the coordinator URL pointing at
+your cluster:
+
+```zisk-bash title="bash"
+ZISK_COORDINATOR_URL=http://<your-coordinator>:7000 cargo run --release
+```
+
+For the Docker Compose deployment, swap the port to 7001
+in the URL above.
+
+While the program runs, you should see four observable
+things happen, in order. They give you a chance to confirm
+each stage of the cluster is responding before moving to
+the next.
+
+The host terminal first prints `setup…`. There is a brief
+pause while the coordinator hashes the ELF and derives the
+proving keys. For a first time upload of a real program
+this can be seconds to minutes; for a re upload of an ELF
+the cluster has seen before it is near instant.
+
+A worker's logs light up next. On the systemd deployment,
+`journalctl -u zisk-worker -f` shows it. On the Docker
+Compose deployment, `docker compose logs -f worker` shows
+the same.
+
+The host terminal then prints `prove…`. The host blocks
+on this line until the proof returns from the cluster.
+
+Finally, the host prints `verify…` and then `verified
+digest = 0x…`. The verify step is local and finishes in
+milliseconds.
+
+A successful run with a hex digest at the end means every
+component of the cluster is functioning correctly. You
+are done with the smoke test.
+
+---
+
+## A "did the test pass" checklist
+
+The table below names the observable signs that each part
+of the cluster is healthy, in the order they should
+appear during the test. If any of them are missing or
+delayed, the [error matrix below](#handling-errors-during-the-test)
+is the first place to look.
+
+| Sign | What it tells you |
+| --- | --- |
+| `setup…` returns within roughly thirty seconds on a small ELF. | The host can reach the coordinator, and the coordinator's setup pipeline is healthy. |
+| Worker logs show the worker picking up segments. | The coordinator can reach the worker, and segment assignment is working. |
+| `prove…` returns with a `Proof` object. | Per segment proving and aggregation are working. |
+| `proof.verify()` returns `Ok(())`. | The proof is valid; the cluster produced a correct proof, not just any proof. |
+| The hex digest matches what you would expect for the input. | (Optional) End to end semantic correctness, easy to check on the hash guest because you can recompute the digest locally. |
+
+---
+
+## Sizing your timeouts
+
+The two timeouts in the test program are the production
+knobs you will care about most. They appear identical in
+shape to many other RPC clients you have used, but the
+appropriate values for proving are unusual because proof
+times can be much longer than a typical RPC.
+
+| Knob | Default | When to change it |
+| --- | --- | --- |
+| `connect_timeout` | 10 s | Lower for fail fast in a low latency network. Higher if the cluster is far away (cross region). |
+| `request_timeout` | 300 s | **Increase this** for any program that takes more than roughly five minutes to prove. Set it comfortably above the largest proving time you expect, with margin. |
+
+The `request_timeout` value is the most common cause of
+"my prover seems to fail intermittently" reports. If a
+job is chugging along on the workers but the host hits
+the timeout, the host returns an error even though the
+prover is still working, and the cluster has no way to
+know that the host gave up. The result looks like a
+random failure to the host application's metrics, even
+though nothing actually failed on the cluster.
+
+:::info
+A useful way to size `request_timeout` for production is
+to measure the 99th percentile proving time for your
+largest realistic input on the cluster you will deploy
+against, then double the result. Doubling sounds excessive
+but it absorbs both legitimate one off slowdowns (a worker
+getting GC paused, a noisy neighbour) and the kind of
+corner cases production loves to invent. Two times the
+99th percentile is a small enough multiplier that it does
+not hide real performance problems, but a large enough
+margin that it absorbs the variance you cannot eliminate.
+:::
+
+For very long jobs (many minutes) the `await` model
+becomes awkward, because every host worker is tied up for
+the duration of the proof. A different pattern works
+better in that case: submit the job, store its job ID,
+and let your service poll for completion from a background
+task instead of holding a single request open. The cluster
+supports webhook callbacks for exactly this case, and the
+pattern is what most production systems eventually adopt
+once their proof times grow into the tens of minutes.
+
+---
+
+## Handling errors during the test
+
+If the test fails, the error usually points directly at
+which component to look at. The table below pairs each
+error with what it actually means and the first thing to
+check.
+
+| Error | What it means | First thing to check |
+| --- | --- | --- |
+| `connect failed` | Coordinator unreachable. | Is the coordinator process up? Can you `curl http://<coord-host>:9090/health` from this machine? Is the firewall open? |
+| `request timeout` | Job exceeded `request_timeout`. | Is the cluster actually proving? Watch worker logs. If you see segment activity, the proof is happening, just slowly. Bump the timeout. |
+| `setup not found` | You called `prove` without first calling `setup`. | Make sure setup ran first. The example program does, but if you have split them across binaries, double check the order. |
+| `program mismatch` | The host's `PROGRAM` was compiled from a different ELF than what setup ran on. | Re run setup on the new ELF. |
+| Generic gRPC errors | Network blip. The SDK retries the connection automatically. | If it persists, check the coordinator's `/health` endpoint. |
+| `no workers available` | The coordinator has no registered workers. | Look at the coordinator logs and at each worker's logs. They might all be in a reconnect loop. |
+
+The retry shape that works well in production has three
+distinct policies for three distinct error categories.
+
+For `connect failed`, retry with backoff. The SDK already
+retries individual gRPC connection attempts, so the
+application level retry is mainly there to cover cases
+where the coordinator was briefly gone (a rolling restart
+or a deploy).
+
+For `request timeout`, do not retry by default. The job
+is probably still running on the cluster, and submitting
+it again doubles the work. The right responses are either
+to bump the timeout and re run, or to switch to the
+polling/webhook model described above.
+
+For `setup not found` and `program mismatch`, the error is
+a programmer error rather than a transient one. Do not
+retry; fix the code that caused it.
+
+---
+
+## A note on `upload` and `setup`
+
+Two distinct calls are involved on the remote backend:
+
+- **`client.upload(&PROGRAM).run()?`** ships the ELF bytes to the coordinator and registers the program by its content hash. This is the call that "uploads" the binary; it is synchronous and returns once the coordinator acknowledges receipt.
+- **`client.setup(&PROGRAM).run()?.await?`** asks the coordinator to derive the proving keys for the registered program. It only sends `{ hash_id, program_name, with_hints }` over the wire; it does not re-upload the ELF.
+
+Always call `upload` before `setup` on a remote client; otherwise the coordinator has no ELF to set up against. Embedded clients do not need `upload` (the program is already local), but calling it is a no-op so the same code can run against either backend without changes.
+
+After the first call for a given ELF, the cluster has cached the proving key, and subsequent `setup` calls for the same ELF are essentially no ops. This means in production code you can safely call `upload` and `setup` once at process startup and never again.
+
+If you change the guest's source code and rebuild, the
+ELF changes, the program verification key changes, and the
+cluster will quietly run setup again on the next `prove`
+call. You do not have to invalidate anything by hand.
+
+:::tip
+The startup time setup pattern is what most production
+hosts do. They call `setup` once when the process starts
+and then the hot path is just `prove` calls. Adding a
+setup call on the hot path is fine functionally because
+it is a no op after the first call, but it does add an
+extra round trip you do not need.
+:::
+
+---
+
+## Summary
+
+A passing smoke test means the cluster is wired up
+correctly: the host reaches the coordinator, the
+coordinator reaches at least one worker, the worker
+proves a segment, aggregation works, and the verifier
+accepts the result. The test program above is the same
+shape as a real production host application; you can lift
+it straight into your codebase as the starting point for
+whatever calls into the cluster you need to make.
+
+---
+
+## Next steps
+
+Continue to [Monitoring](../monitoring) for what to watch
+in production, the starter alerting set, log filter
+recipes, and the runbook for the failure patterns you
+will actually see in real traffic.

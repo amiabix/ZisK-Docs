@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1400 360" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+<style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.mono { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; }
+
+.n-chip rect, .n-chip polygon { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+.n-dec polygon { fill: #FFFFFF; stroke: #007755; stroke-width: 1.5; }
+.n-dec rect { fill: #F3F3F2; stroke: #007755; stroke-width: 1.5; }
+.n-dec text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.edge-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #4A4C59; }
+.edge-label-bg { fill: #FFFFFF; stroke: none; }
+
+.subgraph rect { fill: rgba(110,91,224,0.04); stroke: #6E5BE0; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph.vm rect { fill: rgba(0,179,89,0.04); stroke: #007755; }
+.subgraph text.label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; fill: #6E5BE0; font-weight: 600; }
+.subgraph.vm text.label { fill: #007755; }
+
+.seq-life { stroke: #B9B9C5; stroke-width: 1; stroke-dasharray: 3 4; }
+.seq-msg { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-dashed { fill: none; stroke: #15161D; stroke-width: 1.4; stroke-dasharray: 5 4; }
+.seq-self { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-note rect { fill: rgba(0,179,89,0.07); stroke: #007755; stroke-width: 1; rx: 4; }
+.seq-note text { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-step-num { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9.5px; fill: #7E7F8C; letter-spacing: 0.1em; }
+]]></style>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+            <marker id="arr-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+          </defs>
+
+          <g class="n-art" transform="translate(20,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">Rust source</text></g>
+          <g class="n-art" transform="translate(220,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">RISC-V ELF</text></g>
+          <g class="n-art" transform="translate(440,40)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">proving key</text></g>
+          <g class="n-art" transform="translate(440,240)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">trace</text></g>
+          <g class="n-art" transform="translate(660,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">STARK proof</text></g>
+          <g class="n-dec" transform="translate(880,140)"><polygon points="80,0 160,40 80,80 0,40"/><text class="name" x="80" y="46" text-anchor="middle">wrap?</text></g>
+          <g class="n-out" transform="translate(1080,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">output</text><text class="name" x="80" y="48" text-anchor="middle">final proof</text></g>
+          <g class="n-out" transform="translate(1280,140)"><rect width="100" height="80" rx="8"/><text class="kind" x="50" y="22" text-anchor="middle">terminal</text><text class="name" x="50" y="48" text-anchor="middle">verified</text></g>
+
+          <path class="edge" d="M 180 180 L 220 180" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="183" y="160" width="54" height="14" rx="2"/>
+          <text class="edge-label" x="210" y="171" text-anchor="middle">compile</text>
+
+          <path class="edge" d="M 380 165 C 410 165, 410 80, 440 80" marker-end="url(#arr)"/>
+          <text class="edge-label" x="415" y="118" text-anchor="middle">setup</text>
+
+          <path class="edge" d="M 380 195 C 410 195, 410 280, 440 280" marker-end="url(#arr)"/>
+          <text class="edge-label" x="415" y="248" text-anchor="middle">execute</text>
+
+          <path class="edge" d="M 600 80 C 630 80, 630 165, 660 165" marker-end="url(#arr)"/>
+          <text class="edge-label" x="635" y="118" text-anchor="middle">prove</text>
+
+          <path class="edge-dim" d="M 600 280 C 630 280, 630 195, 660 195" marker-end="url(#arr-dim)"/>
+          <text class="edge-label" x="635" y="248" text-anchor="middle" fill="#7E7F8C">inputs</text>
+
+          <path class="edge" d="M 820 180 L 880 180" marker-end="url(#arr)"/>
+
+          <path class="edge" d="M 1040 180 C 1060 180, 1060 165, 1080 165" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="1043" y="148" width="36" height="14" rx="2"/>
+          <text class="edge-label" x="1061" y="159" text-anchor="middle">none</text>
+
+          <path class="edge" d="M 1040 180 C 1060 180, 1060 195, 1080 195" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="1043" y="200" width="40" height="14" rx="2"/>
+          <text class="edge-label" x="1063" y="211" text-anchor="middle">PLONK</text>
+
+          <path class="edge" d="M 1240 180 L 1280 180" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="1240" y="160" width="44" height="14" rx="2"/>
+          <text class="edge-label" x="1262" y="171" text-anchor="middle">verify</text>
+        </svg>

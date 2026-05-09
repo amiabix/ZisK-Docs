@@ -1,0 +1,1372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>How ZisK Works · All Diagrams</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink-050: #FFFFFF;
+    --ink-100: #F7F8FA;
+    --ink-200: #EEF0F4;
+    --border: #D9DCE3;
+    --border-soft: #E6E8EE;
+    --text: #15161D;
+    --text-2: #4A4C59;
+    --text-3: #7E7F8C;
+    --green-bright: #00B359;
+    --green-deep: #007755;
+    --green-light: #B9F0CF;
+    --green-spring: #00FF7C;
+    --chip: #2D2E3D;
+    --decision: #F3F3F2;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ink-050);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 56px 56px 80px;
+  }
+  .page { max-width: 1480px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 32px;
+    align-items: end;
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--green-bright);
+    margin: 0 0 10px;
+  }
+  .title {
+    font-weight: 800;
+    font-size: 38px;
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+    margin: 0 0 8px;
+  }
+  .title em { font-style: normal; color: var(--green-bright); }
+  .subtitle {
+    font-size: 14px;
+    color: var(--text-2);
+    max-width: 70ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .header-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    text-align: right;
+    line-height: 1.9;
+    letter-spacing: 0.04em;
+  }
+  .header-meta b { color: var(--text); font-weight: 500; }
+
+  /* TOC */
+  .toc {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--ink-100);
+    margin-bottom: 36px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .toc a {
+    color: var(--text-2);
+    text-decoration: none;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--ink-050);
+    transition: 120ms ease;
+  }
+  .toc a:hover { color: var(--green-bright); border-color: var(--green-bright); }
+
+  /* Section */
+  .section {
+    margin-bottom: 56px;
+    scroll-margin-top: 24px;
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 22px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--green-bright);
+  }
+  .section-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    letter-spacing: 0.16em;
+    color: var(--green-bright);
+    font-weight: 600;
+  }
+  .section-title {
+    font-weight: 800;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+  .section-source {
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+  }
+
+  /* Card */
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background:
+      radial-gradient(800px 300px at 20% 0%, rgba(0,179,89,0.04), transparent 60%),
+      var(--ink-050);
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--ink-100);
+  }
+  .card-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--green-bright);
+    font-weight: 600;
+  }
+  .card-title {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .card-meta {
+    margin-left: auto;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+  }
+  .card-body {
+    padding: 28px 28px;
+    overflow-x: auto;
+  }
+  .card-body svg {
+    display: block;
+    margin: 0 auto;
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* Footer */
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 28px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    letter-spacing: 0.1em;
+  }
+  .footer .z {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--green-bright);
+  }
+
+  /* Shared SVG class styling */
+  svg.zisk text { font-family: 'IBM Plex Sans', sans-serif; }
+  svg.zisk .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* Node styles inside SVG */
+  svg.zisk .n-chip rect, svg.zisk .n-chip polygon { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+  svg.zisk .n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+  svg.zisk .n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+  svg.zisk .n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+
+  svg.zisk .n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+  svg.zisk .n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+  svg.zisk .n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+  svg.zisk .n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+
+  svg.zisk .n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+  svg.zisk .n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+  svg.zisk .n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+  svg.zisk .n-dec polygon { fill: #FFFFFF; stroke: #007755; stroke-width: 1.5; }
+  svg.zisk .n-dec text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+
+  svg.zisk .edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+  svg.zisk .edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+  svg.zisk .edge-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    fill: #4A4C59;
+  }
+  svg.zisk .edge-label-bg { fill: #FFFFFF; stroke: none; }
+
+  /* Subgraph container */
+  svg.zisk .subgraph rect { fill: rgba(110,91,224,0.04); stroke: #6E5BE0; stroke-width: 1; stroke-dasharray: 6 4; rx: 12; }
+  svg.zisk .subgraph.vm rect { fill: rgba(0,179,89,0.04); stroke: #007755; }
+  svg.zisk .subgraph text.label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    fill: #6E5BE0;
+    font-weight: 600;
+  }
+  svg.zisk .subgraph.vm text.label { fill: #007755; }
+
+  /* Sequence diagram */
+  svg.zisk .seq-life { stroke: #B9B9C5; stroke-width: 1; stroke-dasharray: 3 4; }
+  svg.zisk .seq-msg { fill: none; stroke: #15161D; stroke-width: 1.4; }
+  svg.zisk .seq-msg-dashed { fill: none; stroke: #15161D; stroke-width: 1.4; stroke-dasharray: 5 4; }
+  svg.zisk .seq-self { fill: none; stroke: #15161D; stroke-width: 1.4; }
+  svg.zisk .seq-msg-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    fill: #15161D;
+  }
+  svg.zisk .seq-note rect {
+    fill: rgba(0,179,89,0.07);
+    stroke: #007755;
+    stroke-width: 1;
+    rx: 4;
+  }
+  svg.zisk .seq-note text {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    fill: #15161D;
+  }
+  svg.zisk .seq-step-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9.5px;
+    fill: #7E7F8C;
+    letter-spacing: 0.1em;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="header">
+    <div>
+      <p class="eyebrow">How ZisK Works · Diagram Review · v1</p>
+      <h1 class="title">All <em>diagrams</em> in <code style="font-family:'IBM Plex Mono',monospace;font-size:0.7em;background:var(--ink-100);padding:2px 8px;border-radius:4px;color:var(--green-bright);">intro/how-zisk-works/</code></h1>
+      <p class="subtitle">
+        Single-page review of all 19 diagrams in the &laquo;How ZisK works&raquo; section, rebuilt with the reference aesthetic. Source mermaid kept identical.
+      </p>
+    </div>
+    <div class="header-meta">
+      <div>diagrams <b>19</b></div>
+      <div>files <b>6</b></div>
+      <div>updated <b>2026-05-05</b></div>
+    </div>
+  </header>
+
+  <div class="toc">
+    <a href="#sec-pipeline">01 · pipeline.md</a>
+    <a href="#sec-overview">02 · overview.md</a>
+    <a href="#sec-host-guest">03 · host-and-guest.md</a>
+    <a href="#sec-components">04 · components.md</a>
+    <a href="#sec-scaling">05 · scaling.md</a>
+    <a href="#sec-lifecycle">06 · proof-lifecycle.md</a>
+  </div>
+
+  <!-- ============================================================
+       SECTION 01 · pipeline.md
+       ============================================================ -->
+  <section class="section" id="sec-pipeline">
+    <div class="section-head">
+      <span class="section-num">01</span>
+      <h2 class="section-title">The pipeline</h2>
+      <span class="section-source">intro/how-zisk-works/pipeline.md · 1 diagram</span>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 01</span>
+        <h3 class="card-title">Six-stage pipeline</h3>
+        <span class="card-meta">flowchart LR · pipeline.md:21</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1400 360" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+            <marker id="arr-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+          </defs>
+
+          <g class="n-art" transform="translate(20,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">Rust source</text></g>
+          <g class="n-art" transform="translate(220,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">RISC-V ELF</text></g>
+          <g class="n-art" transform="translate(440,40)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">proving key</text></g>
+          <g class="n-art" transform="translate(440,240)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">trace</text></g>
+          <g class="n-art" transform="translate(660,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="48" text-anchor="middle">STARK proof</text></g>
+          <g class="n-dec" transform="translate(880,140)"><polygon points="80,0 160,40 80,80 0,40"/><text class="name" x="80" y="46" text-anchor="middle">wrap?</text></g>
+          <g class="n-out" transform="translate(1080,140)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">output</text><text class="name" x="80" y="48" text-anchor="middle">final proof</text></g>
+          <g class="n-out" transform="translate(1280,140)"><rect width="100" height="80" rx="8"/><text class="kind" x="50" y="22" text-anchor="middle">terminal</text><text class="name" x="50" y="48" text-anchor="middle">verified</text></g>
+
+          <path class="edge" d="M 180 180 L 220 180" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="183" y="160" width="54" height="14" rx="2"/>
+          <text class="edge-label" x="210" y="171" text-anchor="middle">compile</text>
+
+          <path class="edge" d="M 380 165 C 410 165, 410 80, 440 80" marker-end="url(#arr)"/>
+          <text class="edge-label" x="415" y="118" text-anchor="middle">setup</text>
+
+          <path class="edge" d="M 380 195 C 410 195, 410 280, 440 280" marker-end="url(#arr)"/>
+          <text class="edge-label" x="415" y="248" text-anchor="middle">execute</text>
+
+          <path class="edge" d="M 600 80 C 630 80, 630 165, 660 165" marker-end="url(#arr)"/>
+          <text class="edge-label" x="635" y="118" text-anchor="middle">prove</text>
+
+          <path class="edge-dim" d="M 600 280 C 630 280, 630 195, 660 195" marker-end="url(#arr-dim)"/>
+          <text class="edge-label" x="635" y="248" text-anchor="middle" fill="#7E7F8C">inputs</text>
+
+          <path class="edge" d="M 820 180 L 880 180" marker-end="url(#arr)"/>
+
+          <path class="edge" d="M 1040 180 C 1060 180, 1060 165, 1080 165" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="1043" y="148" width="36" height="14" rx="2"/>
+          <text class="edge-label" x="1061" y="159" text-anchor="middle">none</text>
+
+          <path class="edge" d="M 1040 180 C 1060 180, 1060 195, 1080 195" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="1043" y="200" width="40" height="14" rx="2"/>
+          <text class="edge-label" x="1063" y="211" text-anchor="middle">PLONK</text>
+
+          <path class="edge" d="M 1240 180 L 1280 180" marker-end="url(#arr)"/>
+          <rect class="edge-label-bg" x="1240" y="160" width="44" height="14" rx="2"/>
+          <text class="edge-label" x="1262" y="171" text-anchor="middle">verify</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 02 · overview.md
+       ============================================================ -->
+  <section class="section" id="sec-overview">
+    <div class="section-head">
+      <span class="section-num">02</span>
+      <h2 class="section-title">Overview</h2>
+      <span class="section-source">intro/how-zisk-works/overview.md · 2 diagrams</span>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 02</span>
+        <h3 class="card-title">The whole picture</h3>
+        <span class="card-meta">flowchart TB · overview.md:24</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 920" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+            <marker id="arr2-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+          </defs>
+
+          <!-- Left column: R, E, PK -->
+          <g class="n-art" transform="translate(180,20)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">artifact</text><text class="name" x="90" y="48" text-anchor="middle">Rust crate</text></g>
+          <g class="n-art" transform="translate(180,160)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">artifact</text><text class="name" x="90" y="48" text-anchor="middle">RISC-V ELF</text></g>
+          <g class="n-art" transform="translate(180,300)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">artifact</text><text class="name" x="90" y="48" text-anchor="middle">Proving key</text></g>
+
+          <!-- Right column: Host, Guest, Trace -->
+          <g class="n-chip" transform="translate(720,20)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">process</text><text class="name" x="100" y="48" text-anchor="middle">Host program</text></g>
+          <g class="n-chip" transform="translate(720,160)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">process</text><text class="name" x="100" y="48" text-anchor="middle">Guest in zkVM</text></g>
+          <g class="n-art" transform="translate(720,300)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">artifact</text><text class="name" x="100" y="48" text-anchor="middle">Execution trace</text></g>
+
+          <!-- Center: SP, A, P, V -->
+          <g class="n-art" transform="translate(420,440)"><rect width="260" height="80" rx="8"/><text class="kind" x="130" y="22" text-anchor="middle">artifact</text><text class="name" x="130" y="48" text-anchor="middle">Per-segment STARK proofs</text></g>
+          <g class="n-art" transform="translate(450,560)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">artifact</text><text class="name" x="100" y="48" text-anchor="middle">Aggregation tree</text></g>
+          <g class="n-out" transform="translate(450,680)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">output</text><text class="name" x="100" y="48" text-anchor="middle">Final root proof</text></g>
+          <g class="n-chip" transform="translate(450,800)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">consumer</text><text class="name" x="100" y="50" text-anchor="middle">Verifier</text></g>
+
+          <!-- Edges -->
+          <!-- R -> E: compile -->
+          <path class="edge" d="M 270 100 L 270 160" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="225" y="118" width="90" height="28" rx="2"/>
+          <text class="edge-label" x="270" y="130" text-anchor="middle">compile</text>
+          <text class="edge-label" x="270" y="142" text-anchor="middle" fill="#7E7F8C">cargo-zisk build</text>
+
+          <!-- E -> PK: setup -->
+          <path class="edge" d="M 270 240 L 270 300" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="225" y="258" width="90" height="28" rx="2"/>
+          <text class="edge-label" x="270" y="270" text-anchor="middle">setup</text>
+          <text class="edge-label" x="270" y="282" text-anchor="middle" fill="#7E7F8C">once per ELF</text>
+
+          <!-- H -> G: prepare input -->
+          <path class="edge" d="M 820 100 L 820 160" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="770" y="120" width="100" height="14" rx="2"/>
+          <text class="edge-label" x="820" y="131" text-anchor="middle">prepare input</text>
+
+          <!-- E -> G: dotted, loaded into -->
+          <path class="edge-dim" d="M 360 200 L 720 200" marker-end="url(#arr2-dim)"/>
+          <rect class="edge-label-bg" x="490" y="186" width="80" height="14" rx="2"/>
+          <text class="edge-label" x="530" y="197" text-anchor="middle" fill="#7E7F8C">loaded into</text>
+
+          <!-- G -> T: runs in zkVM -->
+          <path class="edge" d="M 820 240 L 820 300" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="770" y="258" width="100" height="14" rx="2"/>
+          <text class="edge-label" x="820" y="269" text-anchor="middle">runs in zkVM</text>
+
+          <!-- T -> SP: split per chip -->
+          <path class="edge" d="M 820 380 C 820 410, 580 410, 550 440" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="640" y="404" width="100" height="14" rx="2"/>
+          <text class="edge-label" x="690" y="415" text-anchor="middle">split per chip</text>
+
+          <!-- PK -> SP: dotted, used by -->
+          <path class="edge-dim" d="M 270 380 C 270 410, 530 410, 550 440" marker-end="url(#arr2-dim)"/>
+          <rect class="edge-label-bg" x="380" y="404" width="64" height="14" rx="2"/>
+          <text class="edge-label" x="412" y="415" text-anchor="middle" fill="#7E7F8C">used by</text>
+
+          <!-- SP -> A: combine -->
+          <path class="edge" d="M 550 520 L 550 560" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="513" y="528" width="74" height="14" rx="2"/>
+          <text class="edge-label" x="550" y="539" text-anchor="middle">combine</text>
+
+          <!-- A -> P: root -->
+          <path class="edge" d="M 550 640 L 550 680" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="525" y="648" width="50" height="14" rx="2"/>
+          <text class="edge-label" x="550" y="659" text-anchor="middle">root</text>
+
+          <!-- P -> V: verify (ms) -->
+          <path class="edge" d="M 550 760 L 550 800" marker-end="url(#arr2)"/>
+          <rect class="edge-label-bg" x="510" y="768" width="80" height="14" rx="2"/>
+          <text class="edge-label" x="550" y="779" text-anchor="middle">verify (ms)</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 03</span>
+        <h3 class="card-title">The toolchain</h3>
+        <span class="card-meta">flowchart LR · overview.md:84</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1200 220" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(20,70)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">source</text><text class="name" x="90" y="48" text-anchor="middle">Rust program</text></g>
+          <g class="n-art" transform="translate(320,70)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">artifact</text><text class="name" x="110" y="48" text-anchor="middle">RISC-V program.elf</text><text class="sub" x="110" y="64" text-anchor="middle">RV64IMA</text></g>
+          <g class="n-art" transform="translate(660,70)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">artifact</text><text class="name" x="110" y="48" text-anchor="middle">ZisK ROM</text><text class="sub" x="110" y="64" text-anchor="middle">transpiled at load time</text></g>
+          <g class="n-out" transform="translate(1000,70)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">output</text><text class="name" x="90" y="48" text-anchor="middle">Trace + STARK proofs</text></g>
+
+          <path class="edge" d="M 200 110 L 320 110" marker-end="url(#arr3)"/>
+          <rect class="edge-label-bg" x="206" y="84" width="108" height="28" rx="2"/>
+          <text class="edge-label" x="260" y="96" text-anchor="middle">cargo-zisk build</text>
+          <text class="edge-label" x="260" y="108" text-anchor="middle" fill="#7E7F8C">--release</text>
+
+          <path class="edge" d="M 540 110 L 660 110" marker-end="url(#arr3)"/>
+          <rect class="edge-label-bg" x="555" y="92" width="90" height="14" rx="2"/>
+          <text class="edge-label" x="600" y="103" text-anchor="middle">transpiler</text>
+
+          <path class="edge" d="M 880 110 L 1000 110" marker-end="url(#arr3)"/>
+          <rect class="edge-label-bg" x="888" y="92" width="104" height="14" rx="2"/>
+          <text class="edge-label" x="940" y="103" text-anchor="middle">emulator + prover</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 03 · host-and-guest.md
+       ============================================================ -->
+  <section class="section" id="sec-host-guest">
+    <div class="section-head">
+      <span class="section-num">03</span>
+      <h2 class="section-title">Host &amp; guest</h2>
+      <span class="section-source">intro/how-zisk-works/host-and-guest.md · 2 diagrams</span>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 04</span>
+        <h3 class="card-title">Host / VM split</h3>
+        <span class="card-meta">flowchart TB · host-and-guest.md:33</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1280 800" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+            <marker id="arr4-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+          </defs>
+
+          <!-- Host subgraph -->
+          <g class="subgraph">
+            <rect x="40" y="20" width="1020" height="320" rx="12"/>
+            <text class="label" x="60" y="46">Host (your machine, not in the proof)</text>
+          </g>
+          <!-- HC top center -->
+          <g class="n-chip" transform="translate(430,70)"><rect width="240" height="100" rx="8"/><text class="kind" x="120" y="24" text-anchor="middle">process</text><text class="name" x="120" y="50" text-anchor="middle">Host code</text><text class="sub" x="120" y="72" text-anchor="middle">prepare inputs,</text><text class="sub" x="120" y="88" text-anchor="middle">drive prover</text></g>
+          <!-- IN bottom-left of Host -->
+          <g class="n-art" transform="translate(150,230)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">artifact</text><text class="name" x="110" y="50" text-anchor="middle">Input stream</text></g>
+          <!-- HINT bottom-right of Host -->
+          <g class="n-art" transform="translate(730,230)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">artifact</text><text class="name" x="110" y="50" text-anchor="middle">Hint stream</text></g>
+
+          <!-- VM subgraph -->
+          <g class="subgraph vm">
+            <rect x="40" y="400" width="1020" height="380" rx="12"/>
+            <text class="label" x="60" y="426">ZisK VM (everything here is proven)</text>
+          </g>
+          <!-- GC top center of VM -->
+          <g class="n-chip" transform="translate(430,450)"><rect width="240" height="100" rx="8"/><text class="kind" x="120" y="24" text-anchor="middle">process</text><text class="name" x="120" y="50" text-anchor="middle">Guest code</text><text class="sub" x="120" y="74" text-anchor="middle">your program</text></g>
+          <!-- PC bottom-left of VM -->
+          <g class="n-art" transform="translate(150,610)"><rect width="220" height="130" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">artifact</text><text class="name" x="110" y="50" text-anchor="middle">Guest state</text><text class="sub" x="110" y="74" text-anchor="middle">pc, memory,</text><text class="sub" x="110" y="90" text-anchor="middle">public outputs</text></g>
+          <!-- OUT bottom-right of VM -->
+          <g class="n-out" transform="translate(730,630)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">output</text><text class="name" x="110" y="50" text-anchor="middle">Public outputs</text></g>
+
+          <!-- Edges within Host: HC -> IN (down-left) -->
+          <path class="edge" d="M 490 170 C 490 200, 260 200, 260 230" marker-end="url(#arr4)"/>
+          <!-- HC -> HINT (down-right) -->
+          <path class="edge" d="M 610 170 C 610 200, 840 200, 840 230" marker-end="url(#arr4)"/>
+
+          <!-- Cross-subgraph: IN -> GC (down-right) -->
+          <path class="edge" d="M 260 310 C 260 380, 490 400, 490 450" marker-end="url(#arr4)"/>
+          <!-- HINT -.-> GC (down-left, dashed) -->
+          <path class="edge-dim" d="M 840 310 C 840 380, 610 400, 610 450" marker-end="url(#arr4-dim)"/>
+
+          <!-- Within VM: GC -> PC (down-left) -->
+          <path class="edge" d="M 490 550 C 490 580, 260 580, 260 610" marker-end="url(#arr4)"/>
+          <!-- GC -> OUT (down-right) -->
+          <path class="edge" d="M 610 550 C 610 580, 840 600, 840 630" marker-end="url(#arr4)"/>
+
+          <!-- OUT -> HC: outer right rail going up -->
+          <path class="edge" d="M 950 670 L 1110 670 L 1110 120 L 670 120" marker-end="url(#arr4)"/>
+          <rect class="edge-label-bg" x="1130" y="382" width="140" height="36" rx="2"/>
+          <text class="edge-label" x="1200" y="397" text-anchor="middle">read after</text>
+          <text class="edge-label" x="1200" y="411" text-anchor="middle">proving</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 05</span>
+        <h3 class="card-title">Host / Prover / Guest exchange (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · host-and-guest.md:257</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 540" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+          </defs>
+
+          <!-- Participants -->
+          <g class="n-chip" transform="translate(80,20)"><rect width="160" height="50" rx="6"/><text class="name" x="80" y="32" text-anchor="middle">Host</text></g>
+          <g class="n-chip" transform="translate(470,20)"><rect width="160" height="50" rx="6"/><text class="name" x="80" y="32" text-anchor="middle">ZisK prover</text></g>
+          <g class="n-chip" transform="translate(860,20)"><rect width="160" height="50" rx="6"/><text class="name" x="80" y="32" text-anchor="middle">Guest</text></g>
+
+          <!-- Lifelines -->
+          <line class="seq-life" x1="160" y1="70" x2="160" y2="520"/>
+          <line class="seq-life" x1="550" y1="70" x2="550" y2="520"/>
+          <line class="seq-life" x1="940" y1="70" x2="940" y2="520"/>
+
+          <!-- Messages -->
+          <text class="seq-step-num" x="40" y="118">01</text>
+          <path class="seq-msg" d="M 160 120 L 549 120" marker-end="url(#arr5)"/>
+          <text class="seq-msg-label" x="350" y="112" text-anchor="middle">prove(program, stdin)</text>
+
+          <!-- Note over Host & Prover -->
+          <g class="seq-note">
+            <rect x="100" y="140" width="510" height="36"/>
+            <text x="355" y="163" text-anchor="middle">input stream contains "Hello Zisk"</text>
+          </g>
+
+          <text class="seq-step-num" x="40" y="218">02</text>
+          <path class="seq-msg" d="M 550 220 L 939 220" marker-end="url(#arr5)"/>
+          <text class="seq-msg-label" x="745" y="212" text-anchor="middle">start execution</text>
+
+          <!-- Note over Guest -->
+          <g class="seq-note">
+            <rect x="730" y="240" width="350" height="60"/>
+            <text x="905" y="261" text-anchor="middle">io::read() pulls input</text>
+            <text x="905" y="276" text-anchor="middle">SHA-256 chip computes digest</text>
+            <text x="905" y="291" text-anchor="middle">io::commit_slice writes to output</text>
+          </g>
+
+          <text class="seq-step-num" x="40" y="338">03</text>
+          <path class="seq-msg-dashed" d="M 940 340 L 561 340" marker-end="url(#arr5)"/>
+          <text class="seq-msg-label" x="745" y="332" text-anchor="middle">halt</text>
+
+          <text class="seq-step-num" x="40" y="388">04</text>
+          <path class="seq-msg-dashed" d="M 550 390 L 171 390" marker-end="url(#arr5)"/>
+          <text class="seq-msg-label" x="350" y="382" text-anchor="middle">proof + public outputs</text>
+
+          <!-- Note over Host -->
+          <g class="seq-note">
+            <rect x="40" y="410" width="240" height="50"/>
+            <text x="160" y="431" text-anchor="middle">verify(proof)</text>
+            <text x="160" y="448" text-anchor="middle">read digest from public outputs</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 04 · components.md
+       ============================================================ -->
+  <section class="section" id="sec-components">
+    <div class="section-head">
+      <span class="section-num">04</span>
+      <h2 class="section-title">Components</h2>
+      <span class="section-source">intro/how-zisk-works/components.md · 4 diagrams</span>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 06</span>
+        <h3 class="card-title">Chips at a glance</h3>
+        <span class="card-meta">flowchart TB · components.md:50</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1240 620" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <!-- Main at top center -->
+          <g class="n-chip" transform="translate(500,20)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">execution spine</text><text class="name" x="120" y="52" text-anchor="middle">Main</text></g>
+
+          <!-- Row 2: 4 chips evenly distributed -->
+          <g class="n-chip" transform="translate(40,240)"><rect width="200" height="100" rx="8"/><text class="kind" x="100" y="24" text-anchor="middle">code source</text><text class="name" x="100" y="56" text-anchor="middle">Program ROM</text></g>
+          <g class="n-chip" transform="translate(300,240)"><rect width="220" height="100" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">specialist</text><text class="name" x="110" y="50" text-anchor="middle">Base Operations</text><text class="sub" x="110" y="74" text-anchor="middle">Arith, Binary, Shift, ...</text></g>
+          <g class="n-chip" transform="translate(580,240)"><rect width="280" height="100" rx="8"/><text class="kind" x="140" y="24" text-anchor="middle">specialist</text><text class="name" x="140" y="50" text-anchor="middle">Precompiles</text><text class="sub" x="140" y="74" text-anchor="middle">SHA, Keccak, secp256k1, ...</text></g>
+          <g class="n-chip" transform="translate(920,240)"><rect width="220" height="100" rx="8"/><text class="kind" x="110" y="24" text-anchor="middle">specialist</text><text class="name" x="110" y="56" text-anchor="middle">MemAlign</text></g>
+
+          <!-- Row 3: Tables centered between BaseOps & Precompiles, Memory centered between Precompiles & MemAlign -->
+          <g class="n-chip" transform="translate(440,490)"><rect width="240" height="90" rx="8"/><text class="kind" x="120" y="24" text-anchor="middle">lookup</text><text class="name" x="120" y="56" text-anchor="middle">Tables</text></g>
+          <g class="n-chip" transform="translate(800,490)"><rect width="240" height="90" rx="8"/><text class="kind" x="120" y="24" text-anchor="middle">consistency</text><text class="name" x="120" y="56" text-anchor="middle">Memory</text></g>
+
+          <!-- Main fan-out (Main bottom y=100, Row 2 top y=240) -->
+          <!-- Main centers: bottom (620, 100). Row 2 centers (top): ROM(140,240), BaseOps(410,240), Precompiles(720,240), MemAlign(1030,240) -->
+          <path class="edge" d="M 560 100 C 480 140, 200 200, 140 238" marker-end="url(#arr6)"/>
+          <path class="edge" d="M 600 100 C 560 150, 420 200, 410 238" marker-end="url(#arr6)"/>
+          <path class="edge" d="M 640 100 C 680 150, 720 200, 720 238" marker-end="url(#arr6)"/>
+          <path class="edge" d="M 680 100 C 760 150, 1000 200, 1030 238" marker-end="url(#arr6)"/>
+
+          <!-- Edge labels (lifted above row 2, centered horizontally on each arrow midpoint) -->
+          <text class="edge-label mono" x="180" y="178" text-anchor="middle">fetch</text>
+          <text class="edge-label mono" x="430" y="178" text-anchor="middle">simple ops</text>
+          <text class="edge-label mono" x="720" y="178" text-anchor="middle">crypto / DMA</text>
+          <text class="edge-label mono" x="970" y="178" text-anchor="middle">sub-word access</text>
+
+          <!-- Row 2 -> Row 3: symmetric V's -->
+          <!-- BaseOps(410, 340) -> Tables(560, 488) -->
+          <path class="edge" d="M 410 340 C 410 410, 560 420, 560 488" marker-end="url(#arr6)"/>
+          <!-- Precompiles(720, 340) -> Tables(560, 488) -->
+          <path class="edge" d="M 720 340 C 720 410, 560 420, 560 488" marker-end="url(#arr6)"/>
+          <!-- Precompiles(720, 340) -> Memory(920, 488) -->
+          <path class="edge" d="M 720 340 C 720 410, 920 420, 920 488" marker-end="url(#arr6)"/>
+          <!-- MemAlign(1030, 340) -> Memory(920, 488) -->
+          <path class="edge" d="M 1030 340 C 1030 410, 920 420, 920 488" marker-end="url(#arr6)"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 07</span>
+        <h3 class="card-title">Bus message between chips</h3>
+        <span class="card-meta">flowchart LR · components.md:133</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 240" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(40,60)"><rect width="280" height="120" rx="8"/><text class="kind" x="140" y="22" text-anchor="middle">sender</text><text class="name" x="140" y="50" text-anchor="middle">Main</text><text class="sub" x="140" y="78" text-anchor="middle">row r:</text><text class="sub" x="140" y="96" text-anchor="middle">send (5, 17, add)</text></g>
+
+          <g class="n-chip" transform="translate(780,60)"><rect width="280" height="120" rx="8"/><text class="kind" x="140" y="22" text-anchor="middle">receiver</text><text class="name" x="140" y="50" text-anchor="middle">Arith</text><text class="sub" x="140" y="78" text-anchor="middle">row r':</text><text class="sub" x="140" y="96" text-anchor="middle">receive (5, 17, add)</text></g>
+
+          <path class="edge" d="M 320 120 L 780 120" marker-end="url(#arr7)"/>
+          <rect class="edge-label-bg" x="430" y="92" width="240" height="32" rx="2"/>
+          <text class="edge-label" x="550" y="106" text-anchor="middle">bus message:</text>
+          <text class="edge-label" x="550" y="120" text-anchor="middle">(5, 17, add)</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 08</span>
+        <h3 class="card-title">Plain `add` instruction (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · components.md:206</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 720" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(60,20)"><rect width="160" height="50" rx="6"/><text class="name" x="80" y="32" text-anchor="middle">Main chip</text></g>
+          <g class="n-chip" transform="translate(330,20)"><rect width="160" height="50" rx="6"/><text class="name" x="80" y="32" text-anchor="middle">ROM chip</text></g>
+          <g class="n-chip" transform="translate(600,20)"><rect width="160" height="50" rx="6"/><text class="name" x="80" y="32" text-anchor="middle">Memory chip</text></g>
+          <g class="n-chip" transform="translate(870,20)"><rect width="160" height="50" rx="6"/><text class="name" x="80" y="32" text-anchor="middle">Arith chip</text></g>
+
+          <line class="seq-life" x1="140" y1="70" x2="140" y2="700"/>
+          <line class="seq-life" x1="410" y1="70" x2="410" y2="700"/>
+          <line class="seq-life" x1="680" y1="70" x2="680" y2="700"/>
+          <line class="seq-life" x1="950" y1="70" x2="950" y2="700"/>
+
+          <!-- Note over Main -->
+          <g class="seq-note">
+            <rect x="60" y="90" width="160" height="28"/>
+            <text x="140" y="109" text-anchor="middle">row r in Main trace</text>
+          </g>
+
+          <text class="seq-step-num" x="20" y="148">01</text>
+          <path class="seq-msg" d="M 140 150 L 409 150" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="275" y="142" text-anchor="middle">ROM Bus: "what's the instruction at pc?"</text>
+
+          <text class="seq-step-num" x="20" y="188">02</text>
+          <path class="seq-msg-dashed" d="M 410 190 L 151 190" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="275" y="182" text-anchor="middle">"add x1, x2 → x5"</text>
+
+          <text class="seq-step-num" x="20" y="228">03</text>
+          <path class="seq-msg" d="M 140 230 L 679 230" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="410" y="222" text-anchor="middle">Memory Bus: "read regs[1]"</text>
+
+          <text class="seq-step-num" x="20" y="268">04</text>
+          <path class="seq-msg-dashed" d="M 680 270 L 151 270" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="410" y="262" text-anchor="middle">17</text>
+
+          <text class="seq-step-num" x="20" y="308">05</text>
+          <path class="seq-msg" d="M 140 310 L 679 310" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="410" y="302" text-anchor="middle">Memory Bus: "read regs[2]"</text>
+
+          <text class="seq-step-num" x="20" y="348">06</text>
+          <path class="seq-msg-dashed" d="M 680 350 L 151 350" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="410" y="342" text-anchor="middle">42</text>
+
+          <text class="seq-step-num" x="20" y="388">07</text>
+          <path class="seq-msg" d="M 140 390 L 949 390" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="540" y="382" text-anchor="middle">Op Bus: "add(17, 42)"</text>
+
+          <text class="seq-step-num" x="20" y="428">08</text>
+          <path class="seq-msg-dashed" d="M 950 430 L 151 430" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="540" y="422" text-anchor="middle">(59, flag=0)</text>
+
+          <text class="seq-step-num" x="20" y="468">09</text>
+          <path class="seq-msg" d="M 140 470 L 679 470" marker-end="url(#arr8)"/>
+          <text class="seq-msg-label" x="410" y="462" text-anchor="middle">Memory Bus: "write regs[5] = 59"</text>
+
+          <g class="seq-note">
+            <rect x="60" y="500" width="160" height="28"/>
+            <text x="140" y="519" text-anchor="middle">row r is complete</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 09</span>
+        <h3 class="card-title">SHA-256 precompile call (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · components.md:262</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 700" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(80,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Main chip</text></g>
+          <g class="n-chip" transform="translate(450,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Memory chip</text></g>
+          <g class="n-chip" transform="translate(820,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">SHA-256 chip</text></g>
+
+          <line class="seq-life" x1="170" y1="70" x2="170" y2="680"/>
+          <line class="seq-life" x1="540" y1="70" x2="540" y2="680"/>
+          <line class="seq-life" x1="910" y1="70" x2="910" y2="680"/>
+
+          <!-- Note over Main: setup rows -->
+          <g class="seq-note">
+            <rect x="60" y="90" width="220" height="40"/>
+            <text x="170" y="107" text-anchor="middle">setup rows</text>
+            <text x="170" y="123" text-anchor="middle">(parameter passing)</text>
+          </g>
+
+          <text class="seq-step-num" x="20" y="158">01</text>
+          <!-- Self loop: Main -> Main -->
+          <path class="seq-self" d="M 170 160 C 280 160, 280 200, 170 200" marker-end="url(#arr9)"/>
+          <text class="seq-msg-label" x="295" y="184" text-anchor="start">phantom instructions tracking the calling convention</text>
+
+          <text class="seq-step-num" x="20" y="248">02</text>
+          <path class="seq-msg" d="M 170 250 L 909 250" marker-end="url(#arr9)"/>
+          <text class="seq-msg-label" x="540" y="242" text-anchor="middle">Op Bus: "sha256(buf_addr, len, out_addr)"</text>
+
+          <g class="seq-note">
+            <rect x="800" y="270" width="220" height="28"/>
+            <text x="910" y="289" text-anchor="middle">SHA-256 chip takes over</text>
+          </g>
+
+          <text class="seq-step-num" x="20" y="328">03</text>
+          <path class="seq-msg" d="M 910 330 L 561 330" marker-end="url(#arr9)"/>
+          <text class="seq-msg-label" x="735" y="322" text-anchor="middle">Memory Bus: read input bytes from buf_addr</text>
+
+          <text class="seq-step-num" x="20" y="368">04</text>
+          <path class="seq-msg-dashed" d="M 540 370 L 889 370" marker-end="url(#arr9)"/>
+          <text class="seq-msg-label" x="725" y="362" text-anchor="middle">input bytes</text>
+
+          <text class="seq-step-num" x="20" y="418">05</text>
+          <path class="seq-self" d="M 910 420 C 1020 420, 1020 460, 910 460" marker-end="url(#arr9)"/>
+          <text class="seq-msg-label" x="800" y="438" text-anchor="end">many internal rows</text>
+          <text class="seq-msg-label" x="800" y="453" text-anchor="end">(64 compression rounds)</text>
+
+          <text class="seq-step-num" x="20" y="498">06</text>
+          <path class="seq-msg" d="M 910 500 L 561 500" marker-end="url(#arr9)"/>
+          <text class="seq-msg-label" x="735" y="492" text-anchor="middle">Memory Bus: write digest to out_addr</text>
+
+          <text class="seq-step-num" x="20" y="538">07</text>
+          <path class="seq-msg-dashed" d="M 910 540 L 181 540" marker-end="url(#arr9)"/>
+          <text class="seq-msg-label" x="540" y="532" text-anchor="middle">Op Bus: "done"</text>
+
+          <g class="seq-note">
+            <rect x="60" y="560" width="220" height="40"/>
+            <text x="170" y="577" text-anchor="middle">teardown rows</text>
+            <text x="170" y="593" text-anchor="middle">(result retrieval)</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 05 · scaling.md
+       ============================================================ -->
+  <section class="section" id="sec-scaling">
+    <div class="section-head">
+      <span class="section-num">05</span>
+      <h2 class="section-title">Scaling</h2>
+      <span class="section-source">intro/how-zisk-works/scaling.md · 2 diagrams</span>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 10</span>
+        <h3 class="card-title">Continuation Bus chain</h3>
+        <span class="card-meta">flowchart LR · scaling.md:104</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1380 240" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <!-- Nodes (G/T as light rects, S0-Sn as artifact green rects) -->
+          <g class="n-dec" transform="translate(20,110)"><rect width="120" height="80" rx="8"/><text class="name" x="60" y="48" text-anchor="middle">genesis</text></g>
+          <g class="n-art" transform="translate(220,110)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="50" text-anchor="middle">Segment 0</text></g>
+          <g class="n-art" transform="translate(460,110)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="50" text-anchor="middle">Segment 1</text></g>
+          <g class="n-art" transform="translate(700,110)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="50" text-anchor="middle">…</text></g>
+          <g class="n-art" transform="translate(940,110)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">artifact</text><text class="name" x="80" y="50" text-anchor="middle">Segment n</text></g>
+          <g class="n-dec" transform="translate(1180,110)"><rect width="120" height="80" rx="8"/><text class="name" x="60" y="48" text-anchor="middle">terminus</text></g>
+
+          <!-- Arrows (at y=150) -->
+          <path class="edge" d="M 140 150 L 220 150" marker-end="url(#arr10)"/>
+          <path class="edge" d="M 380 150 L 460 150" marker-end="url(#arr10)"/>
+          <path class="edge" d="M 620 150 L 700 150" marker-end="url(#arr10)"/>
+          <path class="edge" d="M 860 150 L 940 150" marker-end="url(#arr10)"/>
+          <path class="edge" d="M 1100 150 L 1180 150" marker-end="url(#arr10)"/>
+
+          <!-- Labels: lifted ABOVE nodes, all on same y baseline so they line up cleanly -->
+          <text class="edge-label mono" x="180" y="62" text-anchor="middle">(pc_BOOT, 0)</text>
+          <text class="edge-label mono" x="420" y="62" text-anchor="middle">(pc_0, c_0)</text>
+          <text class="edge-label mono" x="660" y="62" text-anchor="middle">(pc_1, c_1)</text>
+          <text class="edge-label mono" x="900" y="62" text-anchor="middle">(pc_{n-1}, c_{n-1})</text>
+          <text class="edge-label mono" x="1140" y="62" text-anchor="middle">(pc_END, 0)</text>
+
+          <!-- Tick marks linking each label to its arrow midpoint -->
+          <line x1="180" y1="70" x2="180" y2="100" stroke="#B9B9C5" stroke-width="1" stroke-dasharray="2 3"/>
+          <line x1="420" y1="70" x2="420" y2="100" stroke="#B9B9C5" stroke-width="1" stroke-dasharray="2 3"/>
+          <line x1="660" y1="70" x2="660" y2="100" stroke="#B9B9C5" stroke-width="1" stroke-dasharray="2 3"/>
+          <line x1="900" y1="70" x2="900" y2="100" stroke="#B9B9C5" stroke-width="1" stroke-dasharray="2 3"/>
+          <line x1="1140" y1="70" x2="1140" y2="100" stroke="#B9B9C5" stroke-width="1" stroke-dasharray="2 3"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 11</span>
+        <h3 class="card-title">Aggregation tree</h3>
+        <span class="card-meta">flowchart TB · scaling.md:130</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <!-- Top: 4 leaves evenly spaced. Centers: 140, 340, 620, 820. Pair gap (340↔620) wider for visual grouping. -->
+          <g class="n-art" transform="translate(70,20)"><rect width="140" height="80" rx="8"/><text class="kind" x="70" y="22" text-anchor="middle">leaf</text><text class="name" x="70" y="50" text-anchor="middle">Leaf 1</text></g>
+          <g class="n-art" transform="translate(270,20)"><rect width="140" height="80" rx="8"/><text class="kind" x="70" y="22" text-anchor="middle">leaf</text><text class="name" x="70" y="50" text-anchor="middle">Leaf 2</text></g>
+          <g class="n-art" transform="translate(550,20)"><rect width="140" height="80" rx="8"/><text class="kind" x="70" y="22" text-anchor="middle">leaf</text><text class="name" x="70" y="50" text-anchor="middle">Leaf 3</text></g>
+          <g class="n-art" transform="translate(750,20)"><rect width="140" height="80" rx="8"/><text class="kind" x="70" y="22" text-anchor="middle">leaf</text><text class="name" x="70" y="50" text-anchor="middle">Leaf 4</text></g>
+
+          <!-- Middle: A1 centered between L1+L2 (240), A2 centered between L3+L4 (720) -->
+          <g class="n-chip" transform="translate(150,220)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">aggregation</text><text class="name" x="90" y="50" text-anchor="middle">A1</text></g>
+          <g class="n-chip" transform="translate(630,220)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">aggregation</text><text class="name" x="90" y="50" text-anchor="middle">A2</text></g>
+
+          <!-- Bottom: Root centered between A1+A2 (480) -->
+          <g class="n-out" transform="translate(390,420)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">root</text><text class="name" x="90" y="50" text-anchor="middle">Root proof</text></g>
+
+          <!-- Leaf -> A edges (symmetric V's) -->
+          <path class="edge" d="M 140 100 C 140 160, 240 180, 240 220" marker-end="url(#arr11)"/>
+          <path class="edge" d="M 340 100 C 340 160, 240 180, 240 220" marker-end="url(#arr11)"/>
+          <path class="edge" d="M 620 100 C 620 160, 720 180, 720 220" marker-end="url(#arr11)"/>
+          <path class="edge" d="M 820 100 C 820 160, 720 180, 720 220" marker-end="url(#arr11)"/>
+
+          <!-- A -> Root edges (symmetric V) -->
+          <path class="edge" d="M 240 300 C 240 360, 480 380, 480 420" marker-end="url(#arr11)"/>
+          <path class="edge" d="M 720 300 C 720 360, 480 380, 480 420" marker-end="url(#arr11)"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION 06 · proof-lifecycle.md
+       ============================================================ -->
+  <section class="section" id="sec-lifecycle">
+    <div class="section-head">
+      <span class="section-num">06</span>
+      <h2 class="section-title">Lifecycle of a proof</h2>
+      <span class="section-source">intro/how-zisk-works/proof-lifecycle.md · 8 diagrams</span>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 12</span>
+        <h3 class="card-title">Phase 1 · Setup (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · proof-lifecycle.md:82</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 580" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(40,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">cargo-zisk</text></g>
+          <g class="n-chip" transform="translate(310,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Transpiler</text></g>
+          <g class="n-chip" transform="translate(580,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Program ROM</text></g>
+          <g class="n-chip" transform="translate(850,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Setup engine</text></g>
+
+          <line class="seq-life" x1="130" y1="70" x2="130" y2="560"/>
+          <line class="seq-life" x1="400" y1="70" x2="400" y2="560"/>
+          <line class="seq-life" x1="670" y1="70" x2="670" y2="560"/>
+          <line class="seq-life" x1="940" y1="70" x2="940" y2="560"/>
+
+          <text class="seq-step-num" x="0" y="118">01</text>
+          <path class="seq-msg" d="M 130 120 L 399 120" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="265" y="112" text-anchor="middle">load hash-guest.elf</text>
+
+          <text class="seq-step-num" x="0" y="168">02</text>
+          <path class="seq-self" d="M 400 170 C 510 170, 510 200, 400 200" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="525" y="184" text-anchor="start">walk every RISC-V instruction</text>
+
+          <text class="seq-step-num" x="0" y="248">03</text>
+          <path class="seq-self" d="M 400 250 C 510 250, 510 280, 400 280" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="525" y="264" text-anchor="start">emit matching ZisK instruction(s)</text>
+
+          <text class="seq-step-num" x="0" y="328">04</text>
+          <path class="seq-msg" d="M 400 330 L 669 330" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="535" y="322" text-anchor="middle">store transpiled instructions, keyed by address</text>
+
+          <text class="seq-step-num" x="0" y="368">05</text>
+          <path class="seq-msg" d="M 130 370 L 939 370" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="535" y="362" text-anchor="middle">hash ROM into program commitment</text>
+
+          <text class="seq-step-num" x="0" y="408">06</text>
+          <path class="seq-self" d="M 940 410 C 1050 410, 1050 440, 940 440" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="820" y="424" text-anchor="end">compute fixed columns of every AIR (lookup tables, instruction encodings)</text>
+
+          <text class="seq-step-num" x="0" y="478">07</text>
+          <path class="seq-self" d="M 940 480 C 1050 480, 1050 510, 940 510" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="820" y="494" text-anchor="end">precompute frequent-operation caches</text>
+
+          <text class="seq-step-num" x="0" y="548">08</text>
+          <path class="seq-msg-dashed" d="M 940 550 L 141 550" marker-end="url(#arr12)"/>
+          <text class="seq-msg-label" x="535" y="542" text-anchor="middle">proving key + program commitment</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 13</span>
+        <h3 class="card-title">Phase 3 · Prove sub-stages</h3>
+        <span class="card-meta">flowchart LR · proof-lifecycle.md:149</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1400 160" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr13" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(20,40)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">stage 3a</text><text class="name" x="90" y="50" text-anchor="middle">Emulation</text></g>
+          <g class="n-chip" transform="translate(240,40)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">stage 3b</text><text class="name" x="100" y="50" text-anchor="middle">Witness planning</text></g>
+          <g class="n-chip" transform="translate(480,40)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">stage 3c</text><text class="name" x="100" y="50" text-anchor="middle">Trace generation</text></g>
+          <g class="n-chip" transform="translate(720,40)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">stage 3d</text><text class="name" x="120" y="50" text-anchor="middle">Per-chip-segment proving</text></g>
+          <g class="n-chip" transform="translate(1000,40)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">stage 3e</text><text class="name" x="90" y="50" text-anchor="middle">Aggregation</text></g>
+          <g class="n-chip" transform="translate(1220,40)"><rect width="160" height="80" rx="8"/><text class="kind" x="80" y="22" text-anchor="middle">stage 3f</text><text class="name" x="80" y="50" text-anchor="middle">Root proof</text></g>
+
+          <path class="edge" d="M 200 80 L 240 80" marker-end="url(#arr13)"/>
+          <path class="edge" d="M 440 80 L 480 80" marker-end="url(#arr13)"/>
+          <path class="edge" d="M 680 80 L 720 80" marker-end="url(#arr13)"/>
+          <path class="edge" d="M 960 80 L 1000 80" marker-end="url(#arr13)"/>
+          <path class="edge" d="M 1180 80 L 1220 80" marker-end="url(#arr13)"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 14</span>
+        <h3 class="card-title">Phase 3a · Emulation (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · proof-lifecycle.md:172</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 700" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(80,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Emulator</text></g>
+          <g class="n-chip" transform="translate(450,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Guest (in zkVM)</text></g>
+          <g class="n-chip" transform="translate(820,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Execution log</text></g>
+
+          <line class="seq-life" x1="170" y1="70" x2="170" y2="680"/>
+          <line class="seq-life" x1="540" y1="70" x2="540" y2="680"/>
+          <line class="seq-life" x1="910" y1="70" x2="910" y2="680"/>
+
+          <text class="seq-step-num" x="20" y="118">00</text>
+          <path class="seq-msg" d="M 170 120 L 539 120" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="355" y="112" text-anchor="middle">pc = ROM_ENTRY</text>
+
+          <!-- Loop bracket -->
+          <rect x="40" y="140" width="1020" height="450" fill="none" stroke="#7E7F8C" stroke-dasharray="6 4" stroke-width="1" rx="6"/>
+          <rect x="50" y="132" width="220" height="20" fill="#FFFFFF" stroke="none"/>
+          <text class="seq-step-num" x="60" y="146" fill="#15161D" style="font-size:10.5px;">LOOP · one ZisK instruction per step</text>
+
+          <text class="seq-step-num" x="20" y="178">01</text>
+          <path class="seq-msg" d="M 170 180 L 539 180" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="355" y="172" text-anchor="middle">fetch instruction at pc</text>
+
+          <text class="seq-step-num" x="20" y="218">02</text>
+          <path class="seq-msg" d="M 540 220 L 909 220" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="725" y="212" text-anchor="middle">record (pc, instruction)</text>
+
+          <text class="seq-step-num" x="20" y="258">03</text>
+          <path class="seq-msg" d="M 170 260 L 539 260" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="355" y="252" text-anchor="middle">resolve operands a, b</text>
+
+          <text class="seq-step-num" x="20" y="298">04</text>
+          <path class="seq-msg" d="M 540 300 L 909 300" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="725" y="292" text-anchor="middle">record memory reads</text>
+
+          <text class="seq-step-num" x="20" y="338">05</text>
+          <path class="seq-msg" d="M 170 340 L 539 340" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="355" y="332" text-anchor="middle">execute op(a, b)</text>
+
+          <text class="seq-step-num" x="20" y="378">06</text>
+          <path class="seq-msg" d="M 540 380 L 909 380" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="725" y="372" text-anchor="middle">record result c, flag</text>
+
+          <text class="seq-step-num" x="20" y="418">07</text>
+          <path class="seq-msg" d="M 170 420 L 539 420" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="355" y="412" text-anchor="middle">write c to destination</text>
+
+          <text class="seq-step-num" x="20" y="458">08</text>
+          <path class="seq-msg" d="M 540 460 L 909 460" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="725" y="452" text-anchor="middle">record memory write</text>
+
+          <g class="seq-note">
+            <rect x="370" y="480" width="340" height="50"/>
+            <text x="540" y="498" text-anchor="middle">SHA-256 call?</text>
+            <text x="540" y="515" text-anchor="middle">→ Log records precompile invocation</text>
+          </g>
+
+          <text class="seq-step-num" x="20" y="558">09</text>
+          <path class="seq-msg" d="M 170 560 L 539 560" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="355" y="552" text-anchor="middle">pc = next_pc</text>
+
+          <text class="seq-step-num" x="20" y="628">10</text>
+          <path class="seq-msg-dashed" d="M 540 630 L 181 630" marker-end="url(#arr14)"/>
+          <text class="seq-msg-label" x="355" y="622" text-anchor="middle">halt at exit address</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 15</span>
+        <h3 class="card-title">Phase 3c · Trace generation (fan-out)</h3>
+        <span class="card-meta">flowchart TB · proof-lifecycle.md:255</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1200 540" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr15" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-art" transform="translate(500,20)"><rect width="200" height="80" rx="8"/><text class="kind" x="100" y="22" text-anchor="middle">artifact</text><text class="name" x="100" y="50" text-anchor="middle">Execution log</text></g>
+
+          <!-- Witness gens -->
+          <g class="n-chip" transform="translate(60,200)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">witness gen</text><text class="name" x="110" y="50" text-anchor="middle">Main</text></g>
+          <g class="n-chip" transform="translate(340,200)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">witness gen</text><text class="name" x="110" y="50" text-anchor="middle">Memory</text></g>
+          <g class="n-chip" transform="translate(620,200)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">witness gen</text><text class="name" x="110" y="50" text-anchor="middle">SHA-256</text></g>
+          <g class="n-chip" transform="translate(900,200)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">witness gen</text><text class="name" x="110" y="50" text-anchor="middle">Base ops</text></g>
+
+          <!-- Traces -->
+          <g class="n-art" transform="translate(60,400)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">trace</text><text class="name" x="110" y="50" text-anchor="middle">Main trace</text></g>
+          <g class="n-art" transform="translate(340,400)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">trace</text><text class="name" x="110" y="50" text-anchor="middle">Memory trace</text></g>
+          <g class="n-art" transform="translate(620,400)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">trace</text><text class="name" x="110" y="50" text-anchor="middle">SHA-256 trace</text></g>
+          <g class="n-art" transform="translate(900,400)"><rect width="220" height="80" rx="8"/><text class="kind" x="110" y="22" text-anchor="middle">trace</text><text class="name" x="110" y="50" text-anchor="middle">Base ops trace</text></g>
+
+          <!-- Edges Log -> WG: short stem down, horizontal rail at y=150, vertical drops to each WG -->
+          <path class="edge" fill="none" d="M 600 100 L 600 150"/>
+          <path class="edge" fill="none" d="M 170 150 L 1010 150"/>
+          <path class="edge" d="M 170 150 L 170 198" marker-end="url(#arr15)"/>
+          <path class="edge" d="M 450 150 L 450 198" marker-end="url(#arr15)"/>
+          <path class="edge" d="M 730 150 L 730 198" marker-end="url(#arr15)"/>
+          <path class="edge" d="M 1010 150 L 1010 198" marker-end="url(#arr15)"/>
+
+          <!-- Edges WG -> Trace (vertical) -->
+          <path class="edge" d="M 170 280 L 170 400" marker-end="url(#arr15)"/>
+          <path class="edge" d="M 450 280 L 450 400" marker-end="url(#arr15)"/>
+          <path class="edge" d="M 730 280 L 730 400" marker-end="url(#arr15)"/>
+          <path class="edge" d="M 1010 280 L 1010 400" marker-end="url(#arr15)"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 16</span>
+        <h3 class="card-title">Phase 3d · Per-segment proving (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · proof-lifecycle.md:300</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 580" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr16" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(60,20)"><rect width="240" height="50" rx="6"/><text class="name" x="120" y="32" text-anchor="middle">Prover (per segment)</text></g>
+          <g class="n-chip" transform="translate(440,20)"><rect width="200" height="50" rx="6"/><text class="name" x="100" y="32" text-anchor="middle">Trace matrix</text></g>
+          <g class="n-chip" transform="translate(780,20)"><rect width="260" height="50" rx="6"/><text class="name" x="130" y="32" text-anchor="middle">Cryptographic commitments</text></g>
+
+          <line class="seq-life" x1="180" y1="70" x2="180" y2="560"/>
+          <line class="seq-life" x1="540" y1="70" x2="540" y2="560"/>
+          <line class="seq-life" x1="910" y1="70" x2="910" y2="560"/>
+
+          <text class="seq-step-num" x="20" y="118">01</text>
+          <path class="seq-msg" d="M 180 120 L 539 120" marker-end="url(#arr16)"/>
+          <text class="seq-msg-label" x="360" y="112" text-anchor="middle">fill in the trace columns</text>
+
+          <text class="seq-step-num" x="20" y="158">02</text>
+          <path class="seq-msg" d="M 180 160 L 909 160" marker-end="url(#arr16)"/>
+          <text class="seq-msg-label" x="540" y="152" text-anchor="middle">commit to the trace (a tamper-proof snapshot)</text>
+
+          <g class="seq-note">
+            <rect x="60" y="180" width="280" height="42"/>
+            <text x="200" y="200" text-anchor="middle">receive the shared random challenges</text>
+            <text x="200" y="215" text-anchor="middle">(broadcast across all segments)</text>
+          </g>
+
+          <text class="seq-step-num" x="20" y="258">03</text>
+          <path class="seq-self" d="M 180 260 C 290 260, 290 290, 180 290" marker-end="url(#arr16)"/>
+          <text class="seq-msg-label" x="305" y="278" text-anchor="start">compute this segment's contribution to the global consistency check</text>
+
+          <text class="seq-step-num" x="20" y="338">04</text>
+          <path class="seq-msg" d="M 180 340 L 909 340" marker-end="url(#arr16)"/>
+          <text class="seq-msg-label" x="540" y="332" text-anchor="middle">commit to that contribution</text>
+
+          <text class="seq-step-num" x="20" y="388">05</text>
+          <path class="seq-self" d="M 180 390 C 290 390, 290 420, 180 420" marker-end="url(#arr16)"/>
+          <text class="seq-msg-label" x="305" y="408" text-anchor="start">prove the trace satisfies its constraints (low-degree polynomial check)</text>
+
+          <text class="seq-step-num" x="20" y="458">06</text>
+          <path class="seq-self" d="M 180 460 C 290 460, 290 490, 180 490" marker-end="url(#arr16)"/>
+          <text class="seq-msg-label" x="305" y="478" text-anchor="start">answer spot-check queries from the verifier</text>
+
+          <text class="seq-step-num" x="20" y="528">07</text>
+          <path class="seq-self" d="M 180 530 C 290 530, 290 545, 180 545" stroke-dasharray="5 4" marker-end="url(#arr16)"/>
+          <text class="seq-msg-label" x="305" y="540" text-anchor="start">per-segment proof ready</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 17</span>
+        <h3 class="card-title">Phase 3e · Aggregation (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · proof-lifecycle.md:343</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1480 520" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr17" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <!-- 6 participants evenly spaced. Lifelines: 130, 350, 570, 790, 1030, 1330. Wider gap before A & Coord (group separator). -->
+          <g class="n-chip" transform="translate(40,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Leaf 1 (Main seg 0)</text></g>
+          <g class="n-chip" transform="translate(260,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Leaf 2 (Memory seg 0)</text></g>
+          <g class="n-chip" transform="translate(480,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Leaf 3 (SHA-256 seg 0)</text></g>
+          <g class="n-chip" transform="translate(700,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Leaf 4 (Base ops seg 0)</text></g>
+          <g class="n-chip" transform="translate(940,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Aggregation tree</text></g>
+          <g class="n-chip" transform="translate(1240,20)"><rect width="180" height="50" rx="6"/><text class="name" x="90" y="32" text-anchor="middle">Coordinator</text></g>
+
+          <line class="seq-life" x1="130" y1="70" x2="130" y2="500"/>
+          <line class="seq-life" x1="350" y1="70" x2="350" y2="500"/>
+          <line class="seq-life" x1="570" y1="70" x2="570" y2="500"/>
+          <line class="seq-life" x1="790" y1="70" x2="790" y2="500"/>
+          <line class="seq-life" x1="1030" y1="70" x2="1030" y2="500"/>
+          <line class="seq-life" x1="1330" y1="70" x2="1330" y2="500"/>
+
+          <text class="seq-step-num" x="0" y="118">01</text>
+          <path class="seq-msg-dashed" d="M 130 120 L 1329 120" marker-end="url(#arr17)"/>
+          <text class="seq-msg-label" x="730" y="112" text-anchor="middle">ready (s₁, c₁)</text>
+
+          <text class="seq-step-num" x="0" y="158">02</text>
+          <path class="seq-msg-dashed" d="M 350 160 L 1329 160" marker-end="url(#arr17)"/>
+          <text class="seq-msg-label" x="840" y="152" text-anchor="middle">ready (s₂, c₂)</text>
+
+          <text class="seq-step-num" x="0" y="208">03</text>
+          <path class="seq-msg" d="M 1330 210 L 1031 210" marker-end="url(#arr17)"/>
+          <text class="seq-msg-label" x="1180" y="202" text-anchor="middle">aggregate L1 + L2</text>
+
+          <text class="seq-step-num" x="0" y="258">04</text>
+          <path class="seq-msg-dashed" d="M 570 260 L 1329 260" marker-end="url(#arr17)"/>
+          <text class="seq-msg-label" x="950" y="252" text-anchor="middle">ready (s₃, c₃)</text>
+
+          <text class="seq-step-num" x="0" y="298">05</text>
+          <path class="seq-msg-dashed" d="M 790 300 L 1329 300" marker-end="url(#arr17)"/>
+          <text class="seq-msg-label" x="1060" y="292" text-anchor="middle">ready (s₄, c₄)</text>
+
+          <text class="seq-step-num" x="0" y="338">06</text>
+          <path class="seq-msg" d="M 1330 340 L 1031 340" marker-end="url(#arr17)"/>
+          <text class="seq-msg-label" x="1180" y="332" text-anchor="middle">aggregate L3 + L4</text>
+
+          <g class="seq-note">
+            <rect x="920" y="358" width="220" height="42"/>
+            <text x="1030" y="378" text-anchor="middle">now two sub-proofs</text>
+            <text x="1030" y="393" text-anchor="middle">are ready</text>
+          </g>
+
+          <text class="seq-step-num" x="0" y="428">07</text>
+          <path class="seq-msg" d="M 1330 430 L 1031 430" marker-end="url(#arr17)"/>
+          <text class="seq-msg-label" x="1180" y="422" text-anchor="middle">aggregate (L1+L2) and (L3+L4)</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 18</span>
+        <h3 class="card-title">Phase 5 · Verify (sequence)</h3>
+        <span class="card-meta">sequenceDiagram · proof-lifecycle.md:434</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 1100 560" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr18" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(120,20)"><rect width="220" height="50" rx="6"/><text class="name" x="110" y="32" text-anchor="middle">Verifier</text></g>
+          <g class="n-chip" transform="translate(720,20)"><rect width="220" height="50" rx="6"/><text class="name" x="110" y="32" text-anchor="middle">Proof file</text></g>
+
+          <line class="seq-life" x1="230" y1="70" x2="230" y2="540"/>
+          <line class="seq-life" x1="830" y1="70" x2="830" y2="540"/>
+
+          <text class="seq-step-num" x="40" y="118">01</text>
+          <path class="seq-msg" d="M 230 120 L 829 120" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="530" y="112" text-anchor="middle">load proof bytes + public values + program commitment</text>
+
+          <text class="seq-step-num" x="40" y="168">02</text>
+          <path class="seq-self" d="M 230 170 C 340 170, 340 200, 230 200" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="188" text-anchor="start">re-derive the shared challenge from the proof</text>
+
+          <text class="seq-step-num" x="40" y="248">03</text>
+          <path class="seq-self" d="M 230 250 C 340 250, 340 280, 230 280" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="268" text-anchor="start">check the consistency total is zero</text>
+
+          <text class="seq-step-num" x="40" y="328">04</text>
+          <path class="seq-self" d="M 230 330 C 340 330, 340 360, 230 360" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="348" text-anchor="start">check the challenge total matches the re-derived value</text>
+
+          <text class="seq-step-num" x="40" y="408">05</text>
+          <path class="seq-self" d="M 230 410 C 340 410, 340 440, 230 440" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="428" text-anchor="start">verify the root STARK (or PLONK) proof</text>
+
+          <g class="seq-note">
+            <rect x="600" y="455" width="280" height="42"/>
+            <text x="740" y="475" text-anchor="middle">constant-time arithmetic,</text>
+            <text x="740" y="490" text-anchor="middle">no trace replay</text>
+          </g>
+
+          <text class="seq-step-num" x="40" y="528">06</text>
+          <path class="seq-self" d="M 230 530 C 340 530, 340 545, 230 545" stroke-dasharray="5 4" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="540" text-anchor="start">Ok if all checks pass</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-num">DIAGRAM 19</span>
+        <h3 class="card-title">Whole lifecycle, end-to-end</h3>
+        <span class="card-meta">flowchart TB · proof-lifecycle.md:463</span>
+      </div>
+      <div class="card-body">
+        <svg class="zisk" viewBox="0 0 900 1080" xmlns="http://www.w3.org/2000/svg">
+          <defs><marker id="arr19" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(330,20)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">phase 0</text><text class="name" x="120" y="48" text-anchor="middle">Compile</text><text class="sub" x="120" y="66" text-anchor="middle">one-time per ELF</text></g>
+          <g class="n-chip" transform="translate(330,140)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">phase 1</text><text class="name" x="120" y="48" text-anchor="middle">Setup</text><text class="sub" x="120" y="66" text-anchor="middle">one-time per ELF</text></g>
+          <g class="n-chip" transform="translate(330,260)"><rect width="240" height="80" rx="8"/><text class="kind" x="120" y="22" text-anchor="middle">phase 2</text><text class="name" x="120" y="48" text-anchor="middle">Execute</text><text class="sub" x="120" y="66" text-anchor="middle">optional sanity check</text></g>
+
+          <!-- Prove subgraph -->
+          <g class="subgraph vm">
+            <rect x="240" y="380" width="420" height="500" rx="12"/>
+            <text class="label" x="260" y="404">Phase 3 · Prove (the expensive stage)</text>
+          </g>
+          <g class="n-chip" transform="translate(330,430)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="20" text-anchor="middle">3a</text><text class="name" x="120" y="42" text-anchor="middle">Emulation</text></g>
+          <g class="n-chip" transform="translate(330,510)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="20" text-anchor="middle">3b</text><text class="name" x="120" y="42" text-anchor="middle">Witness planning</text></g>
+          <g class="n-chip" transform="translate(330,590)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="20" text-anchor="middle">3c</text><text class="name" x="120" y="42" text-anchor="middle">Trace generation</text></g>
+          <g class="n-chip" transform="translate(330,670)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="20" text-anchor="middle">3d</text><text class="name" x="120" y="42" text-anchor="middle">Per-chip-segment proving</text></g>
+          <g class="n-chip" transform="translate(330,750)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="20" text-anchor="middle">3e</text><text class="name" x="120" y="42" text-anchor="middle">Aggregation</text></g>
+          <g class="n-chip" transform="translate(330,830)"><rect width="240" height="40" rx="8"/><text class="name" x="120" y="26" text-anchor="middle">3f Root proof</text></g>
+
+          <g class="n-chip" transform="translate(330,910)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="20" text-anchor="middle">phase 4</text><text class="name" x="120" y="42" text-anchor="middle">Wrap (optional)</text></g>
+          <g class="n-out" transform="translate(330,1000)"><rect width="240" height="60" rx="8"/><text class="kind" x="120" y="20" text-anchor="middle">phase 5</text><text class="name" x="120" y="42" text-anchor="middle">Verify (milliseconds)</text></g>
+
+          <!-- Edges -->
+          <path class="edge" d="M 450 100 L 450 140" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 220 L 450 260" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 340 L 450 430" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 490 L 450 510" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 570 L 450 590" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 650 L 450 670" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 730 L 450 750" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 810 L 450 830" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 880 L 450 910" marker-end="url(#arr19)"/>
+          <path class="edge" d="M 450 970 L 450 1000" marker-end="url(#arr19)"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span>ZISK × INTRO/HOW-ZISK-WORKS</span>
+    <span class="z">ZisK</span>
+  </div>
+</div>
+</body>
+</html>

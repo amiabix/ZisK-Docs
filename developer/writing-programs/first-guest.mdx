@@ -1,0 +1,285 @@
+---
+id: first-guest
+sidebar_position: 1
+title: Your first guest program
+description: Write, build, and prove your first ZisK guest program end to end using a SHA-256 hash as the example.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Write a ZisK guest from scratch and take it through the full proving pipeline. The example is a SHA-256 hash, small enough to keep in mind end to end and big enough to exercise every part of the workflow.
+
+</Summary>
+
+## What you are building
+
+A ZisK guest is an ordinary Rust program with a few constraints. It runs inside a zkVM with no operating system, no networking, and no console.
+
+It receives data through a single input channel, performs a computation, and exposes results by committing them as public values in the proof.
+
+The guest you build below takes a `String` input, hashes it with SHA-256, and commits the 32-byte digest as the public output.
+
+The verifier can then check, given the proof and the digest, that the digest is the SHA-256 of some input that was fed to the program. The verifier does not learn the input itself; only that the computation ran correctly.
+
+The same pattern, input → computation → committed output, scales to anything the zkVM can run.
+
+## Create the project
+
+`cargo-zisk` clones the standard ZisK template and wires the workspace, toolchain, and dependencies in a single step:
+
+```zisk-bash title="bash"
+cargo-zisk new hello-world
+cd hello-world
+```
+
+The template lays out three crates:
+
+```
+hello-world/
+├── common/              # Shared types between guest and host
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs
+├── guest/               # The zkVM program: executed and proven inside the VM
+│   ├── Cargo.toml
+│   └── src/
+│       └── main.rs
+└── host/                # Drives proving from outside the VM (not proven)
+    ├── Cargo.toml
+    └── src/
+        └── main.rs
+```
+
+The split mirrors the trust model. Only `guest/` runs inside the zkVM and contributes to the proof. `host/` runs on your machine outside the VM and drives the prover.
+
+`common/` holds types both sides share so they can agree on the input and output layouts.
+
+This guide focuses entirely on the **guest**, and drives proving from the CLI. Later guides cover the SDK, which lets you drive the same pipeline from a Rust host program.
+
+---
+
+## Write the guest program
+
+Fill in each section in order. Each one builds on the previous until you have a complete, working program.
+
+### Define the entry point
+
+Every ZisK guest opens with two declarations.
+
+`#![no_main]` opts the crate out of the standard Rust runtime. The zkVM has no operating system or argv, so the default `main` the compiler would otherwise generate has nothing to do.
+
+Without this attribute, linking fails with a duplicate-symbol error against the macro's generated `main`.
+
+`ziskos::entrypoint!(main)` registers your `main` function as the symbol the zkVM loader will call. The macro generates a small wrapper that resets I/O state, calls your function, and tears down.
+
+The function name does not have to be `main`; any zero-argument, unit-returning function works.
+
+```rust title="guest/src/main.rs"
+#![no_main]
+ziskos::entrypoint!(main);
+
+fn main() {
+
+}
+```
+
+This compiles but does nothing observable. The next step gives the guest some data to work with.
+
+### Read the input
+
+The guest receives data through ZisK's I/O channel. `io::read()` consumes the next frame from the input buffer and deserializes it into whatever type you specify with the turbofish.
+
+For this example the host will provide a single `String` value:
+
+```rust title="guest/src/main.rs"
+#![no_main]
+ziskos::entrypoint!(main);
+
+use ziskos::io;
+
+fn main() {
+
+    // Reading input
+    let input = io::read::<String>();
+
+}
+```
+
+`io::read` uses bincode internally, so the host writes via `ZiskStdin::write::<String>(...)` and the guest deserializes the same type. A type mismatch on either side panics at the deserialization step.
+
+### Implement the program logic
+
+With the input available, write the SHA-256 logic. Add the `sha2` and `hex` crates to the guest's dependencies. `sha2` provides the hashing implementation; `hex` is for printing the digest in the debug output:
+
+```toml title="guest/Cargo.toml"
+[dependencies]
+ziskos = { workspace = true }
+sha2 = "0.10.8"
+hex = "0.4.3"
+```
+
+Then call `Sha256::digest` on the input bytes:
+
+```rust title="guest/src/main.rs"
+#![no_main]
+ziskos::entrypoint!(main);
+
+use sha2::{Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    // Reading input
+    let input = io::read::<String>();
+
+    // Executing program logic
+    let digest = Sha256::digest(&input);
+
+}
+```
+
+At this point the digest exists in the guest's memory but it is invisible to the verifier.
+
+The proof attests that the computation happened correctly, but the verifier needs the result committed to the public-output region to read it back.
+
+### Commit the public output
+
+Public values are the only channel through which a guest exposes results to the verifier. Call `io::commit_slice` to write the digest into the public-output region as raw bytes:
+
+```rust title="guest/src/main.rs"
+#![no_main]
+ziskos::entrypoint!(main);
+
+use sha2::{Digest, Sha256};
+use ziskos::io;
+
+fn main() {
+
+    // Reading input
+    let input = io::read::<String>();
+
+    // Executing program logic
+    let digest = Sha256::digest(&input);
+
+    // Commiting outputs to proof public values
+    io::commit_slice(&digest);
+
+    println!("SHA-256({input}) => {}", hex::encode(digest));
+
+}
+```
+
+`commit_slice` packs the 32-byte digest into 8 thirty-two-bit slots in the order the bytes appear. Using `commit_slice` instead of `commit::<[u8; 32]>` skips bincode framing, since the verifier already knows the layout and length.
+
+The `println!` is included only for debugging. It prints from inside the VM during execution and shows up in the `cargo-zisk run` output, but it is not part of the proof and adds cycle cost. Remove it for production guests.
+
+---
+
+## From code to proof
+
+With the guest written, the rest of this guide takes it through the full proving pipeline: compile, run, set up the program, prove the execution, and verify the proof.
+
+The pipeline runs end to end from the CLI here. The same six stages can also be driven from Rust via the SDK; the [Your first proof](../proving-programs/first-proof) guide covers that path.
+
+### Build the guest program
+
+Compile the guest to a RISC-V ELF binary using the ZisK toolchain:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+```
+
+```
+   Compiling hello-world-guest v0.1.0 (/hello-world/guest)
+    Finished `release` profile [optimized] target(s) in 7.2s
+```
+
+The compiled binary lands at:
+
+```
+target/elf/riscv64ima-zisk-zkvm-elf/release/hello-world-guest
+```
+
+The `riscv64ima-zisk-zkvm-elf` target in the path confirms the binary was compiled for ZisK's RISC-V environment rather than your host machine. That ELF is the exact program the zkVM will execute, byte for byte, when proving.
+
+### Run the guest program
+
+Run the guest in the emulator to verify the output before committing to a full proving run. The `-i` flag expects a `ZiskStdin`-formatted file, not an inline typed literal. Generate that file from a host program with `ZiskStdin::write` and `ZiskStdin::save`; the [Your first proof](../proving-programs/first-proof) guide shows the exact host-side pattern.
+
+```zisk-bash title="bash"
+cargo-zisk run -i ../inputs/hello-zisk.bin
+```
+
+```
+SHA-256('Hello Zisk!') => d3e33ed651e7c8d8d4e30ce9a3e4a40e9f089f22435e279a84ea5f8ae234eead
+```
+
+`cargo-zisk run` executes the guest in emulated mode and prints any `println!` output from inside the VM. No proof is generated at this stage.
+
+This is a fast sanity check that confirms the logic and inputs are correct before spending time proving.
+
+The emulator runs in seconds even for non-trivial guests. The prover, by contrast, takes minutes. Use `run` to iterate, then move to `prove` once the logic is right.
+
+### Set up the guest program
+
+Before ZisK can generate a proof, it needs a **program key** derived from this specific guest binary. The key encodes the structure of the program so the prover can commit efficiently to the correct execution trace:
+
+```zisk-bash title="bash"
+cargo-zisk program-setup
+```
+
+:::info
+Setup is a one-time step per guest binary. Re-run it only when the guest source changes and you rebuild the ELF. You do not need to repeat it between proving runs with different inputs. The first run can take a few minutes.
+:::
+
+The setup output lands in the standard ZisK cache directory; `prove` and `verify` find it automatically.
+
+### Prove the guest program
+
+With setup complete, run the prover. It re-executes the guest over the given input, generates arithmetic constraints over the execution trace, and produces a proof that the output is correct:
+
+```zisk-bash title="bash"
+cargo-zisk prove -i ../inputs/hello-zisk.bin
+```
+
+```
+Proof generated successfully!
+```
+
+Proof generation can take several minutes depending on the guest's complexity and the host machine. The proof file lands in the project's `proofs/` directory by default.
+
+### Verify the proof
+
+Verification checks the mathematical structure of the proof without re-executing the program. It runs in milliseconds regardless of how expensive the original computation was:
+
+```zisk-bash title="bash"
+cargo-zisk verify -p <proof>
+```
+
+```
+Proof verified successfully!
+```
+
+Anyone can run this command and be certain the committed digest was produced by a correct execution of the guest, without seeing the input or repeating the computation.
+
+---
+
+## Summary
+
+You just took an arbitrary computation and turned it into a proof anyone can verify instantly, without re-running the program or seeing the inputs.
+
+That is the contract ZisK provides, and you have now run it end to end.
+
+The shape of this guest, read input → compute → commit output, is the shape every ZisK guest follows. What changes for larger programs is the size of the computation and the structure of the input and output, not the pipeline.
+
+## Where this picks up
+
+Before building a real application, it is worth understanding how to write efficient guest programs. Proof cost scales with the work the guest does, and a well-tuned guest can prove in a fraction of the time of a naive one.
+
+- [Working with inputs](./inputs): how inputs flow into the guest, the two read primitives, and how to pick between them.
+- [Committing outputs](./outputs): how outputs are committed to the proof, the slot model, and how to keep public values compact.
+- [Profiling your program](./profiling): measure cycle cost so the expensive parts are visible before proving.
+
+When you are ready to prove from code rather than the CLI, [Your first proof](../proving-programs/first-proof) walks the full pipeline using the SDK.

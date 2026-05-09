@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1900 700" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 12px; font-family: 'IBM Plex Mono', monospace; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.host-frame rect { fill: #FFFFFF; stroke: #15161D; stroke-width: 1.5; }
+.host-frame text.host-name { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.slot-waiting rect { fill: #F7F8FA; stroke: #B9B9C5; stroke-width: 1; stroke-dasharray: 3 3; }
+.slot-waiting text { font-family: 'IBM Plex Mono', monospace; font-size: 12px; fill: #B9B9C5; font-weight: 500; }
+.ceiling { stroke: #C7301F; stroke-width: 2; stroke-dasharray: 8 4; fill: none; }
+.ceiling-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; fill: #C7301F; font-weight: 700; }
+.caption { font-family: 'IBM Plex Mono', monospace; font-size: 12px; fill: #4A4C59; font-style: italic; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.tag { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; fill: #7E7F8C; }
+    ]]></style>
+    <marker id="arr66" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <!-- ============= LEFT PANEL: Embedded · single host ============= -->
+  <g class="subgraph">
+    <rect x="40" y="40" width="780" height="600" rx="12"/>
+    <text class="label" x="60" y="68">Embedded · single host</text>
+  </g>
+
+  <!-- RAM ceiling line -->
+  <path class="ceiling" d="M 100 160 L 760 160"/>
+  <text class="ceiling-label" x="430" y="148" text-anchor="middle">RAM ceiling</text>
+
+  <!-- Single host frame -->
+  <g class="host-frame">
+    <rect x="100" y="180" width="280" height="320" rx="8"/>
+    <text class="host-name" x="240" y="208" text-anchor="middle">host · 1 of 1</text>
+  </g>
+
+  <!-- 4 active segments in host (green, capped) -->
+  <g class="n-art" transform="translate(120,232)"><rect width="240" height="44" rx="5"/><text class="name" x="120" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(120,288)"><rect width="240" height="44" rx="5"/><text class="name" x="120" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(120,344)"><rect width="240" height="44" rx="5"/><text class="name" x="120" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(120,400)"><rect width="240" height="44" rx="5"/><text class="name" x="120" y="28" text-anchor="middle">segment · proving</text></g>
+
+  <!-- Waiting queue (right of host, dimmed) -->
+  <text class="tag" x="540" y="208" text-anchor="middle">waiting in queue</text>
+  <g class="slot-waiting" transform="translate(420,232)"><rect width="240" height="36" rx="5"/><text x="120" y="24" text-anchor="middle">segment · waiting</text></g>
+  <g class="slot-waiting" transform="translate(420,278)"><rect width="240" height="36" rx="5"/><text x="120" y="24" text-anchor="middle">segment · waiting</text></g>
+  <g class="slot-waiting" transform="translate(420,324)"><rect width="240" height="36" rx="5"/><text x="120" y="24" text-anchor="middle">segment · waiting</text></g>
+  <g class="slot-waiting" transform="translate(420,370)"><rect width="240" height="36" rx="5"/><text x="120" y="24" text-anchor="middle">segment · waiting</text></g>
+  <g class="slot-waiting" transform="translate(420,416)"><rect width="240" height="36" rx="5"/><text x="120" y="24" text-anchor="middle">segment · waiting</text></g>
+  <g class="slot-waiting" transform="translate(420,462)"><rect width="240" height="36" rx="5"/><text x="120" y="24" text-anchor="middle">…</text></g>
+
+
+  <!-- ============= RIGHT PANEL: Distributed · cluster ============= -->
+  <g class="subgraph">
+    <rect x="860" y="40" width="1000" height="600" rx="12"/>
+    <text class="label" x="880" y="68">Distributed · cluster</text>
+  </g>
+
+  <!-- Coordinator (top center of right panel) -->
+  <g class="n-chip" transform="translate(1280,120)">
+    <rect width="180" height="80" rx="8"/>
+    <text class="name" x="90" y="48" text-anchor="middle">Coordinator</text>
+  </g>
+
+  <!-- Worker hosts (3 in a row below the coordinator) -->
+  <g class="host-frame">
+    <rect x="900" y="260" width="220" height="300" rx="8"/>
+    <text class="host-name" x="1010" y="288" text-anchor="middle">worker host · 1</text>
+  </g>
+  <g class="n-art" transform="translate(920,308)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(920,364)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(920,420)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(920,476)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+
+  <g class="host-frame">
+    <rect x="1260" y="260" width="220" height="300" rx="8"/>
+    <text class="host-name" x="1370" y="288" text-anchor="middle">worker host · 2</text>
+  </g>
+  <g class="n-art" transform="translate(1280,308)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(1280,364)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(1280,420)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(1280,476)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+
+  <g class="host-frame">
+    <rect x="1620" y="260" width="220" height="300" rx="8"/>
+    <text class="host-name" x="1730" y="288" text-anchor="middle">worker host · 3</text>
+  </g>
+  <g class="n-art" transform="translate(1640,308)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(1640,364)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(1640,420)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+  <g class="n-art" transform="translate(1640,476)"><rect width="180" height="44" rx="5"/><text class="name" x="90" y="28" text-anchor="middle">segment · proving</text></g>
+
+  <!-- Coord → workers dispatch arrows (top-down fan-out) -->
+  <path class="edge" d="M 1340 200 C 1340 230, 1010 240, 1010 258" marker-end="url(#arr66)"/>
+  <path class="edge" d="M 1370 200 L 1370 258" marker-end="url(#arr66)"/>
+  <path class="edge" d="M 1400 200 C 1400 230, 1730 240, 1730 258" marker-end="url(#arr66)"/>
+
+</svg>

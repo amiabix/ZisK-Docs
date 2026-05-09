@@ -1,0 +1,362 @@
+---
+id: quickstart
+sidebar_position: 3
+title: Quickstart
+description: Build the prover binaries, run a coordinator and a worker locally, and prove a small program end to end on a single-host cluster.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+This page walks you through bringing up a single host
+distributed prover (one coordinator and one worker, both on
+your own machine) and submitting a real proving job to it. It
+is the smallest deployment that actually exercises the
+binaries you will deploy in production. The pieces are
+identical, only the scale changes.
+
+</Summary>
+
+## Prerequisites
+
+You need a Linux x86_64 machine with the Rust toolchain
+installed (`cargo --version` should work) and roughly
+thirty two gigabytes of free RAM. The memory requirement
+comes from the Assembly emulator, which preallocates large
+shared regions on startup; the [Limits](/intro/deep/limits)
+page covers the full memory picture and the trade off with
+the lighter Rust emulator.
+
+The whole tutorial is run from a clone of the ZisK source
+repo, so the first step is to clone it and step into the
+working directory:
+
+```zisk-bash title="bash"
+git clone https://github.com/0xPolygonHermez/zisk.git
+cd zisk
+```
+
+Everything below assumes you are inside the repo.
+
+---
+
+## Build the prover binaries
+
+The two binaries you need are `zisk-coordinator` and
+`zisk-worker`. They live in the workspace's distributed
+crate, and a single `cargo build --release` produces both
+of them:
+
+```zisk-bash title="bash"
+cargo build --release --bin zisk-coordinator --bin zisk-worker
+```
+
+The first build takes several minutes because it pulls the
+proving stack and compiles it from source. After it
+finishes you have two release binaries on disk:
+
+```
+target/release/zisk-coordinator
+target/release/zisk-worker
+```
+
+These two files are exactly what every later guide
+deploys. They do not change when you put them under
+systemd, and they do not change when you put them inside
+Docker containers. If you plan to redeploy on a different
+host, cache the produced binaries somewhere convenient so
+you do not have to rebuild on every host.
+
+---
+
+## Start the coordinator
+
+Open a terminal in the repo and start the coordinator
+process. For a quickstart we run it as a foreground process
+so you can see its log output directly:
+
+```zisk-bash title="bash"
+cargo run --release --bin zisk-coordinator
+```
+
+The coordinator binds to its three default ports on
+startup. These are the same three ports the
+[architecture page](./architecture#ports-and-traffic-flows)
+described, and the same three ports you will be configuring
+firewalls around in production.
+
+| Port | Purpose |
+| --- | --- |
+| 7000 | Client facing gRPC API. Host applications connect here. |
+| 50051 | Worker facing gRPC port. Workers connect here. |
+| 9090 | Prometheus metrics endpoint and `/health` liveness probe. |
+
+Leave the coordinator's terminal open. The startup log
+should look something like the lines below; if you see all
+three "listening on" lines, the coordinator is ready.
+
+```text
+INFO Starting ZisK Coordinator
+INFO server listening on 0.0.0.0:7000
+INFO worker port listening on 0.0.0.0:50051
+INFO metrics listening on 0.0.0.0:9090
+```
+
+If the coordinator exits with `Address already in use`,
+something else on the host is already bound to one of the
+three ports. The fix is either to stop the conflicting
+process or to override the offending port at startup:
+
+```zisk-bash title="bash"
+cargo run --release --bin zisk-coordinator -- --api-port 8000 --cluster-port 60000
+```
+
+:::tip
+Run `zisk-coordinator --help` for the full list of CLI
+flags. The three you will most often override are
+`--api-port`, `--cluster-port`, and `--metrics-port`, which
+correspond to the three default ports above.
+:::
+
+---
+
+## Start a worker
+
+In a second terminal, in the same repo directory, start a
+worker process. The worker reads its config from a TOML file
+that ships with the repo, and the development config points
+the worker at the coordinator you just started:
+
+```zisk-bash title="bash"
+cargo run --release --bin zisk-worker -- \
+    --config distributed/crates/worker/config/dev.toml
+```
+
+That `dev.toml` config does three things worth knowing
+about. It points at `http://127.0.0.1:50051`, which is the
+coordinator you just started. It advertises ten compute
+units, which tells the coordinator how much work this
+worker can take on. It sets the log level to debug so that
+you can see, line by line, what the worker is actually
+doing.
+
+If the coordinator is reachable, the worker connects,
+registers, and starts heartbeating. The startup log on the
+worker side looks like this:
+
+```text
+INFO connecting to coordinator http://127.0.0.1:50051
+INFO registered as worker <random-uuid> (capacity 10)
+INFO heartbeat ok
+```
+
+In the coordinator's terminal you should see the matching
+side of the same handshake:
+
+```text
+INFO worker registered: <uuid> capacity=10
+```
+
+A few small things in those lines are worth noticing
+before moving on. The worker generated its own UUID
+because worker identity is ephemeral by default; if you
+stop and restart the worker, it will get a new UUID. You
+can pin the identity with `[worker].worker_id` in the
+config, which is useful when you want stable per worker
+metrics. The "capacity 10" number is the compute units the
+worker is advertising. The coordinator divides work
+proportionally between workers, so a worker advertising 10
+gets twice as much as one advertising 5. The `heartbeat ok`
+line repeats every few seconds; if it stops, the
+coordinator drops the worker from its routing table after
+`[connection].heartbeat_timeout_seconds` (default 30
+seconds), which is how worker outages are detected.
+
+You now have a one host cluster.
+
+---
+
+## Confirm it is healthy
+
+Before submitting a real job, sanity check that the
+coordinator's metrics layer is responding. In a third
+terminal, hit the liveness probe:
+
+```zisk-bash title="bash"
+curl http://127.0.0.1:9090/health
+```
+
+A healthy coordinator returns `200 OK` with an empty body.
+If you instead see `Connection refused`, the metrics
+server did not start, and the coordinator's logs will have
+the binding error.
+
+The Prometheus metrics endpoint is on the same port as the
+liveness probe. Curling it shows the raw metric stream:
+
+```zisk-bash title="bash"
+curl http://127.0.0.1:9090/metrics | head -20
+```
+
+You will see Prometheus formatted lines for things like
+the count of registered workers, in flight jobs, request
+latencies, and so on. We will not use them now, but they
+are the same metrics you will wire into your monitoring
+stack later (covered in [Monitoring](../monitoring)).
+
+---
+
+## Submit a proving job
+
+The cluster is up, so it is time to give it work. We will
+reuse the `hash-guest` example from [Your first
+proof](/developer/proving-programs/first-proof). Any
+compiled ZisK guest works; the example is just convenient
+because the [developer track](/developer/proving-programs/first-proof)
+already builds it.
+
+If you do not have a guest ELF on disk yet, build one:
+
+```zisk-bash title="bash"
+cd /path/to/your/hash-project
+cargo-zisk build --release
+```
+
+The output ELF lands at
+`target/elf/riscv64ima-zisk-zkvm-elf/release/hash-guest`.
+
+Now write a small host program that talks to the **remote**
+prover instead of the embedded one. The only line that
+changes versus the embedded version (covered in [Your first
+proof](/developer/proving-programs/first-proof)) is the
+constructor call: `ProverClient::remote(...)` replaces
+`ProverClient::embedded()`. Everything else stays the same.
+
+```rust title="host/src/main.rs"
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStdin, load_program};
+
+static PROGRAM: GuestProgram = load_program!("hash-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let client = ProverClient::remote("http://127.0.0.1:7000").build()?;
+
+    // Remote backend: upload the ELF before setup so the coordinator
+    // can register it. Embedded backends do not need this call.
+    client.upload(&PROGRAM).run()?;
+    client.setup(&PROGRAM).run()?.await?;
+
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&"Hello Zisk".to_string());
+
+    let proof = client.prove(&PROGRAM, stdin).run()?.await?;
+    proof.verify()?;
+
+    let mut digest = [0u8; 32];
+    proof.get_public_values_slice(&mut digest);
+    println!("verified digest = 0x{}", hex::encode(digest));
+    Ok(())
+}
+```
+
+Run it:
+
+```zisk-bash title="bash"
+cargo run --release
+```
+
+While it runs, watch the worker's terminal. You will see
+job assignment messages, trace generation, per segment
+proving, and finally a "job complete" line. When the host
+program returns, it prints the verified digest:
+
+```text
+verified digest = 0x9b15b8e31756e4a3292b0d8f4e6f89c3a1d27e5048f3c6b9d20e7a41b5f8c2d
+```
+
+You just produced and verified a proof on a deployed
+cluster. A tiny one, but a real one.
+
+### What just happened, end to end
+
+For the record, the round trip you just performed walked
+through six stages. The host connected to the coordinator
+on port 7000 and uploaded the program (the `setup` call).
+The coordinator hashed the ELF, derived the proving keys,
+and cached them so future calls for the same ELF are no ops.
+The host called `prove(...)` with the input; the coordinator
+accepted the job and split it into segments. The
+coordinator handed segments to the only worker it knew
+about (the one you started); the worker executed the
+program, built per segment witnesses, and produced STARK
+proofs. The coordinator stitched the per segment proofs
+into a single final proof using the recursion tree. The
+final proof returned to the host, which called `.verify()`,
+running locally on the host and finishing in milliseconds.
+
+All later guides scale the fourth stage (more workers, on
+more machines) and harden the surrounding infrastructure.
+The proving math is the same in every case.
+
+---
+
+## What you have now
+
+![Diagram: Your host program · Single-host cluster · zisk-coordinator :7000  :50051  :9090 · zisk-worker](/diagrams/svgs/43-prover-quickstart-1.svg)
+
+There are three real moving parts in that picture. Your
+host application uses the SDK's `RemoteClient` to drive
+jobs. The coordinator receives the job, fans it out, and
+returns the proof. The worker does the actual proving
+work. Everything in the rest of the tutorial is scaling
+that picture up: multiple workers, multiple machines,
+production hardening, real configuration files.
+
+---
+
+## Troubleshooting
+
+If something does not behave the way the tutorial
+described, the table below covers the patterns that
+account for almost every quickstart issue. Each row pairs
+a symptom with the most likely cause and the fix.
+
+| Symptom | Likely cause and fix |
+| --- | --- |
+| `cargo build` fails on a dependency. | Old Rust toolchain. Update to the latest stable Rust and rerun. |
+| Coordinator exits with `Address already in use`. | Another service is on 7000, 50051, or 9090. Pass `--api-port`, `--cluster-port`, or `--metrics-port` to override the offending port. |
+| Worker logs `connection refused`. | The coordinator did not start, or it is listening on a different port. Check the coordinator's logs. |
+| Worker registers but no jobs run. | Coordinator and worker are both up, but the host program is not connecting. Confirm `ProverClient::remote("http://127.0.0.1:7000")` and that the host you ran it from can reach the coordinator's API port. |
+| Coordinator log shows `worker registered` then immediately `worker disconnected`. | The worker booted, registered, and crashed (most often OOM) before it could heartbeat. Check the worker terminal and look for OOM killer messages with `dmesg`. |
+| Proof takes forever or OOMs. | The Assembly emulator wants at least sixty four gigabytes of RAM. Switch to the Rust emulator with the `-l` flag on `cargo-zisk`, or shrink the input. |
+| `setup not found` from the host program. | The `setup(...)` call needs to complete before the first `prove(...)` call. The example does this, but if you have split them across binaries, make sure setup ran first. |
+
+---
+
+## Summary
+
+You built the two prover binaries, ran a coordinator and a
+worker on your own machine, submitted a real proving job
+through the coordinator, and verified the returned proof
+locally. The cluster is the smallest possible (one
+coordinator, one worker, one host), but the binaries, the
+wire protocol, and the proof shape are exactly what you
+will deploy at scale.
+
+---
+
+## Next steps
+
+The deployment section walks through bringing the same two
+binaries up on real infrastructure. Continue to [Deploy in
+Linux server](../deploying/linux-server) for the production
+path with dedicated users, hardened systemd units, journald
+logs, and bare hosts. If you want the fastest path to a
+multi worker cluster (ideal for trying the architecture
+out, or for small CI clusters), [Deploy via
+docker-compose](../deploying/docker-compose) is the
+container deployment path.
+
+When you are done with the tutorial, leave both processes
+running and use them as a sandbox for further exploration.

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1200 460" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+    ]]></style>
+    <marker id="arr21" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <!-- Sources column (left) -->
+  <g class="n-art" transform="translate(40,40)">
+    <rect width="220" height="70" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">source</text>
+    <text class="name" x="110" y="48" text-anchor="middle">immediate</text>
+  </g>
+  <g class="n-art" transform="translate(40,180)">
+    <rect width="220" height="100" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">source</text>
+    <text class="name" x="110" y="48" text-anchor="middle">32 GP registers</text>
+    <text class="sub" x="110" y="68" text-anchor="middle">x0 ... x31</text>
+  </g>
+  <g class="n-art" transform="translate(40,350)">
+    <rect width="220" height="70" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">source</text>
+    <text class="name" x="110" y="48" text-anchor="middle">memory</text>
+  </g>
+
+  <!-- Operand registers a, b (middle) -->
+  <g class="n-chip" transform="translate(490,140)">
+    <rect width="160" height="70" rx="8"/>
+    <text class="kind" x="80" y="22" text-anchor="middle">register</text>
+    <text class="name" x="80" y="48" text-anchor="middle">a</text>
+  </g>
+  <g class="n-chip" transform="translate(490,260)">
+    <rect width="160" height="70" rx="8"/>
+    <text class="kind" x="80" y="22" text-anchor="middle">register</text>
+    <text class="name" x="80" y="48" text-anchor="middle">b</text>
+  </g>
+
+  <!-- Combined operand registers (right) -->
+  <g class="n-chip" transform="translate(880,200)">
+    <rect width="280" height="70" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">operand registers</text>
+    <text class="name" x="140" y="48" text-anchor="middle">a, b</text>
+  </g>
+
+  <!-- Edges: each source feeds both a and b -->
+  <path class="edge" d="M 260 75 C 360 75, 380 175, 490 175" marker-end="url(#arr21)"/>
+  <path class="edge" d="M 260 75 C 360 75, 380 295, 490 295" marker-end="url(#arr21)"/>
+  <path class="edge" d="M 260 230 L 490 175" marker-end="url(#arr21)"/>
+  <path class="edge" d="M 260 230 L 490 295" marker-end="url(#arr21)"/>
+  <path class="edge" d="M 260 385 C 360 385, 380 175, 490 175" marker-end="url(#arr21)"/>
+  <path class="edge" d="M 260 385 C 360 385, 380 295, 490 295" marker-end="url(#arr21)"/>
+
+  <!-- a, b → combined -->
+  <path class="edge" d="M 650 175 C 760 175, 770 235, 880 235" marker-end="url(#arr21)"/>
+  <path class="edge" d="M 650 295 C 760 295, 770 235, 880 235" marker-end="url(#arr21)"/>
+</svg>

@@ -1,0 +1,253 @@
+---
+id: watch-job
+title: WatchJob
+sidebar_position: 5
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Server-streaming RPC that emits a JobEvent on every
+  state transition.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Server-streaming RPC. The coordinator emits a `JobEvent` for
+every state transition the job goes through, then closes the
+stream once the terminal event is sent. Use this when you want
+push-based progress instead of polling.
+
+</Summary>
+
+## Signature
+
+```proto
+rpc WatchJob(WatchJobRequest) returns (stream JobEvent);
+```
+
+| Property | Value |
+| -------- | ----- |
+| Direction | Server-streaming |
+| Idempotent | Yes (same job → same event sequence) |
+| Streams | Server → client |
+
+## Request
+
+```proto
+message WatchJobRequest {
+  string job_id = 1;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_id` | `string` | Job to watch. Returned by [`JobRequest`](./job-request). |
+
+## Stream contract
+
+The server emits `JobEvent`s in the order the underlying state
+transitions occur on the coordinator. The order is per-job
+sequential. No event for a given `job_id` can overtake an
+earlier one, but ordering across other jobs is unrelated.
+
+A typical sequence is:
+
+1. Zero or one `queued`, `started`, and `progress` event(s) as
+   the job moves through non-terminal states.
+2. Optionally `waiting_for_input` and additional `started` /
+   `progress` events as input is supplied.
+3. Exactly one terminal event: `completed`, `cancelled`, or
+   `failed`.
+4. The stream closes.
+
+If you call `WatchJob` after the job is already terminal, the
+stream emits the terminal event immediately and closes. You will
+**not** get the back-history of pre-terminal events for an
+already-finished job, only the final state.
+
+## Event types
+
+```proto
+message JobEvent {
+  oneof event {
+    JobEventQueued          queued            = 1;
+    JobEventStarted         started           = 2;
+    JobEventProgress        progress          = 3;
+    JobEventWaitingForInput waiting_for_input = 4;
+    JobEventCompleted       completed         = 5;
+    JobEventCancelled       cancelled         = 6;
+    JobEventFailed          failed            = 7;
+  }
+}
+```
+
+Every event carries the `job_id` and a `google.protobuf.Timestamp`.
+
+### Queued
+
+```proto
+message JobEventQueued {
+  string                    job_id    = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+```
+
+Emitted when the coordinator accepts the job into its queue.
+You will see this at most once per job, immediately after
+`JobRequest` succeeds.
+
+### Started
+
+```proto
+message JobEventStarted {
+  string                    job_id    = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+```
+
+Emitted when a worker picks up the job for the first time. May
+be emitted again if the job goes back through `running` after a
+`waiting_for_input` pause.
+
+### Progress
+
+```proto
+message JobEventProgress {
+  string                    job_id    = 1;
+  JobPhase                  phase     = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+```
+
+Emitted when the job transitions between internal phases. The
+[`JobPhase`](./data-types#jobphase) enum covers
+`CONTRIBUTIONS`, `PROVE`, and `AGGREGATE`. Useful for surfacing
+"which stage are we in" to dashboards.
+
+A `progress` event is the push-based equivalent of a
+[`JobStatusRunning`](./wait-job-result#jobstatus-values) value
+with the same `phase` field. `WatchJob` and `WaitJobResult`
+both expose the same underlying state, just with different
+delivery semantics.
+
+### WaitingForInput
+
+```proto
+message JobEventWaitingForInput {
+  string                    job_id    = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+```
+
+Emitted when the job pauses because it's consumed all input
+chunks the client has sent and needs more. Send the next chunk
+with [`PushJobInput`](./streaming-input) (or
+`PushJobHintsInput`) to resume.
+
+### Completed
+
+```proto
+message JobEventCompleted {
+  string                    job_id    = 1;
+  JobKindResponse           result    = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+```
+
+Terminal. Carries the [`JobKindResponse`](./job-request#result-envelope)
+result envelope. The variant inside `result` matches the
+original `JobKind` (setup → setup, prove → prove, etc.).
+
+### Cancelled
+
+```proto
+message JobEventCancelled {
+  string                    job_id    = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+```
+
+Terminal. Emitted when the job is cancelled via
+[`CancelJob`](./cancel-job).
+
+### Failed
+
+```proto
+message JobEventFailed {
+  string                    job_id    = 1;
+  JobFailure                failure   = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+```
+
+Terminal. Carries the [`JobFailure`](./data-types#jobfailure)
+detail explaining why the job did not succeed.
+
+## Watch pattern
+
+```rust title="Stream consumer in Rust + tonic"
+let mut stream = client
+    .watch_job(WatchJobRequest { job_id: job_id.clone() })
+    .await?
+    .into_inner();
+
+while let Some(event) = stream.message().await? {
+    use job_event::Event::*;
+    match event.event {
+        Some(Queued(_))           => tracing::info!("queued"),
+        Some(Started(_))          => tracing::info!("started"),
+        Some(Progress(p))         => tracing::info!(?p.phase, "progress"),
+        Some(WaitingForInput(_))  => push_next_chunk(&mut input_stream).await?,
+        Some(Completed(c))        => return Ok(c.result),
+        Some(Cancelled(_))        => bail!("cancelled"),
+        Some(Failed(f))           => bail!("failed: {:?}", f.failure),
+        None                      => continue,
+    }
+}
+```
+
+When the stream closes after the terminal event,
+`stream.message().await?` returns `Ok(None)`.
+
+## Behaviour
+
+- **Network drop mid-stream**: the server-side state continues.
+  Reconnect with a fresh `WatchJob` call; you'll get the terminal
+  event when the job finishes (and miss any intermediate events
+  that fired during the disconnect).
+- **Multiple concurrent watchers**: supported. The coordinator
+  fans the event sequence out to every active watcher; each
+  watcher sees the same events in the same order, regardless
+  of when it subscribed (modulo the back-history caveat above
+  for late subscribers to an already-terminal job).
+- **Calling on a non-existent `job_id`** returns `NotFound` /
+  `JOB_NOT_FOUND`.
+
+## Choosing between WatchJob and WaitJobResult
+
+| | WatchJob | WaitJobResult |
+| - | -------- | ------------- |
+| **Pattern** | Push (server-stream) | Long-poll (loop) |
+| **Intermediate state** | Every transition | Only what's current at poll time |
+| **Connection lifetime** | Held for the whole job | Held for `timeout_seconds` per call |
+| **Reconnect on network drop** | Loses intermediate events | Loses nothing (next poll catches up) |
+| **Best for** | Live dashboards, UI updates | Backend pipelines, batch waiters |
+
+Both are safe to use after the job is terminal. The result is
+returned immediately and the stream closes.
+
+## Errors
+
+| gRPC status | Error | When |
+| ----------- | ----- | ---- |
+| `NotFound` | `JOB_NOT_FOUND` (1001) | `job_id` is not known to the coordinator. |
+| `Internal` | `INTERNAL` (3001) | Server-side failure observing the job. |
+
+See [Errors](./errors) for the full table.
+
+## See also
+
+- [WaitJobResult](./wait-job-result): long-poll alternative.
+- [JobPhase](./data-types#jobphase) and
+  [JobFailure](./data-types#jobfailure).

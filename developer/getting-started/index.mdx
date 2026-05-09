@@ -1,0 +1,31 @@
+---
+id: getting-started
+sidebar_position: 0
+title: Getting Started
+description: Install ZisK and get your environment ready to write and prove programs.
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="Set up your environment and run your first proof. Install
+  the ZisK toolchain for your platform, then follow the quickstart to build
+  and prove a program end to end.">
+  <PageCard
+    href="/developer/getting-started/install-linux"
+    tag="Linux" tagColor="yellow"
+    title="Install on Linux"
+    description="Install ZisK on Ubuntu using prebuilt binaries or build from source. Includes the full proving stack with ASM backend."
+  />
+  <PageCard
+    href="/developer/getting-started/install-macos"
+    tag="macOS" tagColor="blue"
+    title="Install on macOS"
+    description="Install ZisK on macOS 14 or higher. Supports Intel and Apple Silicon. Write and test guest programs using the emulator backend."
+  />
+  <PageCard
+    href="/developer/getting-started/quickstart"
+    tag="Start here" tagColor="green"
+    title="Quickstart"
+    description="Build and prove a Fibonacci program end to end. Covers the full CLI pipeline and the SDK path in one guided walkthrough."
+  />
+</IndexPage>

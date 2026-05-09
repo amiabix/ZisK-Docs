@@ -1,0 +1,134 @@
+---
+id: cancel-job
+title: CancelJob
+sidebar_position: 7
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 3
+description: Cancel a queued or running job. Idempotent and blocks
+  until terminal.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Cancels a job. Blocks until the job reaches a terminal state:
+`Cancelled` if cancellation succeeded, or another terminal
+status if the job completed first. Idempotent: calling
+`CancelJob` on an already-terminal job succeeds with
+`cancelled=false`.
+
+</Summary>
+
+## Signature
+
+```proto
+rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+```
+
+| Property | Value |
+| -------- | ----- |
+| Direction | Unary |
+| Idempotent | Yes |
+| Streams | None |
+
+## Request
+
+```proto
+message CancelJobRequest {
+  string job_id = 1;
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_id` | `string` | Job to cancel. |
+
+## Response
+
+```proto
+message CancelJobResponse {
+  string job_id    = 1;
+  bool   cancelled = 2; // true if cancelled; false if already terminal
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `job_id` | `string` | Echo of the request `job_id`. |
+| `cancelled` | `bool` | `true` if this RPC actually transitioned the job to `Cancelled`. `false` if the job was already in a terminal state when the RPC arrived. |
+
+## Behaviour
+
+- The RPC blocks until the job reaches a terminal state, so by
+  the time it returns the job is guaranteed to be done. There
+  is no half-cancelled state to deal with afterwards.
+- A queued job that has not yet been picked up by a worker is
+  cancelled immediately.
+- A running job is signalled; the worker stops at the next safe
+  point and the coordinator emits a
+  [`JobEventCancelled`](./watch-job#cancelled).
+- If the job finishes successfully *before* the cancellation
+  signal reaches the worker, the job ends in `Completed` and
+  the RPC returns `cancelled=false`. The result is still
+  retrievable via [`WaitJobResult`](./wait-job-result) or
+  [`WatchJob`](./watch-job).
+
+### Idempotency
+
+```
+CancelJob(job_x)  → cancelled=true   (first call, job was running)
+CancelJob(job_x)  → cancelled=false  (second call, job is now terminal)
+```
+
+The semantics are deliberately "did this RPC do anything?".
+Both calls are valid; both succeed.
+
+### Streams attached to a cancelled job
+
+- Active [`PushJobInput`](./streaming-input) /
+  `PushJobHintsInput` streams against a cancelled job are
+  closed by the server. Subsequent sends fail with
+  `INVALID_JOB_STATE`.
+- Active [`WatchJob`](./watch-job) streams receive a
+  `JobEventCancelled` and then close.
+- Active [`WaitJobResult`](./wait-job-result) calls return with
+  `JobStatusCancelled`.
+
+## Errors
+
+| gRPC status | Error | When |
+| ----------- | ----- | ---- |
+| `NotFound` | `JOB_NOT_FOUND` (1001) | `job_id` is not known to the coordinator. |
+| `Internal` | `INTERNAL` (3001) | Server-side failure during cancellation. |
+
+`CancelJob` does **not** return `Cancelled` as a gRPC status
+even when it cancels. The cancellation is the *job's* state,
+not the *RPC's*. The RPC itself returns `Ok` with
+`cancelled=true`.
+
+See [Errors](./errors) for the full table.
+
+## Example
+
+```rust title="Direct gRPC call"
+use zisk_coordinator_api::v1::CancelJobRequest;
+
+let resp = client
+    .cancel_job(CancelJobRequest { job_id: job_id.clone() })
+    .await?
+    .into_inner();
+
+if resp.cancelled {
+    tracing::info!(%job_id, "cancelled");
+} else {
+    tracing::info!(%job_id, "already terminal; cancel was a no-op");
+}
+```
+
+## See also
+
+- [WatchJob](./watch-job): observe the `cancelled` event.
+- [JobStatus](./data-types#jobstatus): the post-cancellation
+  state.

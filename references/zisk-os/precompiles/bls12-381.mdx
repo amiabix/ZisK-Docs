@@ -1,0 +1,141 @@
+---
+id: bls12-381
+title: BLS12-381
+sidebar_position: 6
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+description: G1 point addition and doubling, and Fp2 field arithmetic
+  syscalls over BLS12-381.
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Raw BLS12-381 elliptic curve syscalls. G1 point operands use
+`SyscallPoint384`: `x ++ y`, each coordinate as 6 LE `u64` limbs
+(384 bits). Fp2 operands use `SyscallComplex384`: `real ++ imaginary`,
+6 LE `u64` limbs each. Results are written back into `p.x` in-place.
+
+</Summary>
+
+## G1 curve
+
+<FnPanel>
+
+<FnDef name="syscall_bls12_381_curve_add">
+
+BLS12-381 G1 point addition. Reads two affine points from `p` and
+writes the sum into `p.x` in-place.
+
+```rust
+pub unsafe fn syscall_bls12_381_curve_add(p: *mut SyscallPoint384)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallPoint384` | Input: `p.x` and `p.y` are the two addend points (6 LE `u64` limbs each). Output: result written back into `p.x`. |
+
+#### Returns
+
+Nothing. The result point is written into `p.x` in-place.
+
+</FnDef>
+
+<FnDef name="syscall_bls12_381_curve_dbl">
+
+BLS12-381 G1 point doubling. Doubles the point in `p.x` and writes
+the result back in-place.
+
+```rust
+pub unsafe fn syscall_bls12_381_curve_dbl(p: *mut SyscallPoint384)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallPoint384` | Input: `p.x` is the point to double (6 LE `u64` limbs). Output: result written back into `p.x`. |
+
+#### Returns
+
+Nothing. The doubled point is written into `p.x` in-place.
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Fp2 arithmetic
+
+<FnPanel>
+
+<FnDef name="syscall_bls12_381_complex_add">
+
+BLS12-381 Fp2 addition: computes `p.x + p.y` and writes the result
+back into `p.x`.
+
+```rust
+pub unsafe fn syscall_bls12_381_complex_add(p: *mut SyscallComplex384)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallComplex384` | Input: `p.x` (real) and `p.y` (imaginary) are the two Fp2 operands. Output: result written into `p.x`. |
+
+#### Returns
+
+Nothing. The result is written into `p.x` in-place.
+
+</FnDef>
+
+<FnDef name="syscall_bls12_381_complex_sub">
+
+BLS12-381 Fp2 subtraction: computes `p.x - p.y` and writes the
+result back into `p.x`.
+
+```rust
+pub unsafe fn syscall_bls12_381_complex_sub(p: *mut SyscallComplex384)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallComplex384` | Input: `p.x` (minuend) and `p.y` (subtrahend). Output: result written into `p.x`. |
+
+#### Returns
+
+Nothing. The result is written into `p.x` in-place.
+
+</FnDef>
+
+<FnDef name="syscall_bls12_381_complex_mul">
+
+BLS12-381 Fp2 multiplication: computes `p.x * p.y` and writes the
+result back into `p.x`.
+
+```rust
+pub unsafe fn syscall_bls12_381_complex_mul(p: *mut SyscallComplex384)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallComplex384` | Input: `p.x` and `p.y` are the two Fp2 factors. Output: result written into `p.x`. |
+
+#### Returns
+
+Nothing. The result is written into `p.x` in-place.
+
+</FnDef>
+
+</FnPanel>

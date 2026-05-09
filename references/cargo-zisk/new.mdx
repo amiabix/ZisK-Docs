@@ -1,0 +1,68 @@
+---
+id: new
+title: New
+sidebar_position: 1
+displayed_sidebar: referencesSidebar
+description: Scaffold a new ZisK workspace from the upstream template.
+---
+
+Scaffold a new ZisK workspace by cloning the upstream template repository (`github.com/0xPolygonHermez/zisk_template`) into a directory named after the positional `name` argument. The clone runs with `--recurse-submodules --depth=1`, then the `.git` directory is removed so the result is a fresh workspace.
+
+```bash
+cargo-zisk new <name>
+```
+
+The only argument is the positional project name. The CLI does not expose any flags.
+
+## Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `<name>` | yes      | Name of the new project directory to create in the current working directory. |
+
+## Environment
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ZISK_TEMPLATE_BRANCH` | upstream default branch | If set, clones the named branch instead of the default. |
+
+## Examples
+
+Scaffold a workspace named `my-program`:
+
+```bash
+cargo-zisk new my-program
+```
+
+Scaffold from a specific template branch:
+
+```bash
+ZISK_TEMPLATE_BRANCH=experimental cargo-zisk new my-program
+```
+
+## Outputs
+
+Creates a `<name>/` directory in the current working directory. The exact layout is whatever the upstream template ships at the time of clone; consult the template repository for current contents. A typical layout is:
+
+```
+<name>/
+├── Cargo.toml
+├── guest/
+│   ├── Cargo.toml
+│   └── src/
+│       └── main.rs
+├── host/
+│   ├── Cargo.toml
+│   └── src/
+│       └── main.rs
+└── common/
+    ├── Cargo.toml
+    └── src/
+        └── lib.rs
+```
+
+**`guest/`** is the program that runs inside the zkVM. `src/main.rs` reads private inputs from the input stream, executes the computation, and commits public outputs. Compiled to a RISC-V ELF by the ZisK toolchain.
+
+**`host/`** is the program that runs on your machine and drives the proving pipeline. `src/main.rs` prepares inputs, then calls the ZisK SDK to execute, prove, and verify the guest.
+
+**`common/`** holds shared types and utilities depended on by both `guest` and `host`. Defining input and output structs here and deriving `Serialize` / `Deserialize` keeps both sides in agreement on the wire format.

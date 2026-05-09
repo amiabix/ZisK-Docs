@@ -1,0 +1,141 @@
+---
+id: bn254
+title: BN254
+sidebar_position: 5
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+description: G1 point addition and doubling, and Fp2 field arithmetic
+  syscalls over BN254.
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Raw BN254 elliptic curve syscalls. G1 point operands use
+`SyscallPoint256`: `x ++ y`, each coordinate as 4 LE `u64` limbs.
+Fp2 operands use `SyscallComplex256`: `real ++ imaginary`, 4 LE
+`u64` limbs each. Results are written back into `p.x` in-place.
+
+</Summary>
+
+## G1 curve
+
+<FnPanel>
+
+<FnDef name="syscall_bn254_curve_add">
+
+BN254 G1 point addition. Reads two affine points from `p` and writes
+the sum into `p.x` in-place.
+
+```rust
+pub unsafe fn syscall_bn254_curve_add(p: *mut SyscallPoint256)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallPoint256` | Input: `p.x` and `p.y` are the two addend points. Output: result written back into `p.x`. |
+
+#### Returns
+
+Nothing. The result point is written into `p.x` in-place.
+
+</FnDef>
+
+<FnDef name="syscall_bn254_curve_dbl">
+
+BN254 G1 point doubling. Doubles the point in `p.x` and writes the
+result back in-place.
+
+```rust
+pub unsafe fn syscall_bn254_curve_dbl(p: *mut SyscallPoint256)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallPoint256` | Input: `p.x` is the point to double. Output: result written back into `p.x`. |
+
+#### Returns
+
+Nothing. The doubled point is written into `p.x` in-place.
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Fp2 arithmetic
+
+<FnPanel>
+
+<FnDef name="syscall_bn254_complex_add">
+
+BN254 Fp2 addition: computes `p.x + p.y` and writes the result back
+into `p.x`.
+
+```rust
+pub unsafe fn syscall_bn254_complex_add(p: *mut SyscallComplex256)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallComplex256` | Input: `p.x` (real) and `p.y` (imaginary) are the two Fp2 operands. Output: result written into `p.x`. |
+
+#### Returns
+
+Nothing. The result is written into `p.x` in-place.
+
+</FnDef>
+
+<FnDef name="syscall_bn254_complex_sub">
+
+BN254 Fp2 subtraction: computes `p.x - p.y` and writes the result
+back into `p.x`.
+
+```rust
+pub unsafe fn syscall_bn254_complex_sub(p: *mut SyscallComplex256)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallComplex256` | Input: `p.x` (minuend) and `p.y` (subtrahend). Output: result written into `p.x`. |
+
+#### Returns
+
+Nothing. The result is written into `p.x` in-place.
+
+</FnDef>
+
+<FnDef name="syscall_bn254_complex_mul">
+
+BN254 Fp2 multiplication: computes `p.x * p.y` and writes the result
+back into `p.x`.
+
+```rust
+pub unsafe fn syscall_bn254_complex_mul(p: *mut SyscallComplex256)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `*mut SyscallComplex256` | Input: `p.x` and `p.y` are the two Fp2 factors. Output: result written into `p.x`. |
+
+#### Returns
+
+Nothing. The result is written into `p.x` in-place.
+
+</FnDef>
+
+</FnPanel>

@@ -1,0 +1,272 @@
+---
+id: architecture
+sidebar_position: 2
+title: Prover Architecture
+description: The two binaries, the three coordinator ports, and how a proving job fans out across workers and aggregates back into one proof.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+A ZisK cluster is, at the end of the day, two programs
+talking to each other over gRPC. This page makes the
+architecture concrete by describing those two binaries, the
+three ports the coordinator binds, what flows on each one,
+and how a single proving request fans out across the worker
+pool and aggregates back into one proof.
+
+</Summary>
+
+## The two binaries
+
+A cluster of any size, from a single host running both
+processes to a production deployment spanning many machines,
+is made up of exactly two distinct binaries. Understanding
+what each one does is the first thing worth knowing about
+the cluster's shape.
+
+### `zisk-coordinator`
+
+The coordinator is the orchestrator. Host applications (the
+Rust programs that want a proof) talk to it, not to the
+workers. When a host submits a job, it goes to the
+coordinator. When the coordinator returns a proof, the host
+sees the result come back from the same address it submitted
+to. The workers, from the host's point of view, are an
+invisible implementation detail.
+
+The coordinator's responsibilities cover the whole lifecycle
+of a proving job. It accepts incoming requests over gRPC and
+assigns each one a job ID. It hashes any uploaded guest ELF
+and caches the derived proving keys, so that subsequent jobs
+for the same program reuse the keys and skip the
+expensive setup step. It splits each job into segments,
+hands those segments to workers in proportion to the
+workers' advertised capacity, receives the per segment STARK
+proofs back, and stitches them into a single final proof
+using the recursive aggregation tree described on the
+[Recursion and aggregation](/intro/deep/recursion#the-aggregation-tree)
+page.
+
+There is exactly one coordinator per cluster. It is the only
+stateful component you need to think about for backups or
+high availability, because it holds the job table, the
+proving key cache, and the in flight aggregation state.
+There is no built in coordinator high availability today.
+You should treat the coordinator as a single critical
+process and keep its host healthy.
+
+### `zisk-worker`
+
+The worker is the compute side. A worker connects outbound
+to a coordinator on startup, advertises how much work it can
+take on (its compute capacity), and then proves whatever
+segments the coordinator hands it. There can be many
+workers, on many machines, in any combination, and they can
+come and go without restarting the coordinator.
+
+The important property of workers, operationally, is that
+they are **stateless across jobs**. A worker holds only the
+segments it is currently proving. When it finishes a
+segment, it returns the proof and forgets the segment. You
+can stop and restart a worker freely (after it drains
+in flight work) without losing any global state.
+
+:::info
+This split, one stateful coordinator and many stateless
+workers, is what makes scaling cheap. Adding a worker only
+adds compute capacity. It never adds anything that needs to
+be backed up or synchronised, because everything important
+about the cluster's state lives on the coordinator.
+:::
+
+---
+
+## What runs where
+
+The minimum cluster is one coordinator and one worker on the
+same host, which is what the [Quickstart](./quickstart)
+brings up. A realistic production cluster spreads the
+workers across many machines while keeping a single
+coordinator on its own host. The diagram below shows the
+shape and the traffic between the parts.
+
+![Diagram: Host application RemoteClient · Coordinator · Worker 1 segments 1, 4, 7 · Worker 2 segments 2, 5, 8 · Worker 3 segments 3, 6, 9](/diagrams/svgs/44-prover-architecture-1.svg)
+
+The roles are summarised in the table below, but the key
+property is the absence of any direct worker to worker
+traffic. Workers do not know about each other; they only
+know about the coordinator. That is what allows you to add a
+worker mid job without restarting anything. The new worker
+shows up, registers with the coordinator, and is in the
+rotation for the next segment assignment.
+
+| Role | Responsibility |
+| --- | --- |
+| Host | The application driving the proving job. Talks to the coordinator over gRPC via the SDK's `RemoteClient`. Lives wherever your application lives. |
+| Coordinator | Receives the prove request, splits work into segments, assigns segments to workers, runs the aggregation tree, returns the final root proof. |
+| Worker | Picks up assigned segments, generates per AIR traces and STARK proofs, returns them to the coordinator. Lives on a host with enough RAM to hold a small number of segments at once. |
+
+Communication between every pair of nodes is gRPC. The
+coordinator additionally exposes webhook notifications on
+job completion, so a host that submitted a long running job
+does not need to keep an open connection waiting for the
+result.
+
+---
+
+## Ports and traffic flows
+
+The coordinator binds to **three ports**. Each one carries
+a different audience's traffic, has a different security
+profile, and should be exposed (or not) independently. The
+three ports are the most operationally significant detail to
+internalise from this page, because they determine how you
+write firewall rules and how you reason about the cluster's
+attack surface.
+
+| Port | Direction | Used for | Trust level |
+| --- | --- | --- | --- |
+| 7000 | Host to coordinator | Job submission, status polling, proof retrieval. The public facing API. | Treat like any internal service API. TLS terminate at a load balancer if you are crossing network boundaries. |
+| 50051 | Worker to coordinator | Worker registration, heartbeats, segment assignment, segment proof upload. Cluster internal traffic. | Internal only. Never expose to the internet. mTLS this link if workers and coordinator are on different trust zones. |
+| 9090 | Prometheus to coordinator | `/metrics` and `/health`. Read only and unauthenticated by default. | Restrict to monitoring hosts. Never expose externally. |
+
+:::info
+The Docker Compose deployment offsets each port by one
+(`7001`, `50052`, `9091`) so that the compose stack can run
+alongside a bare binary coordinator on the same host without
+colliding on any of the three ports.
+:::
+
+The reason for three ports rather than one is not
+accidental. Each port matches a distinct audience, and you
+will almost always want different firewall rules for each
+audience. Application hosts get port 7000 because that is
+where they submit jobs. Worker hosts get port 50051 because
+that is where they register and pick up assignments.
+Monitoring hosts get port 9090 because that is where
+Prometheus scrapes. Collapsing everything onto one port
+would force you to give every audience the same access
+level, which is rarely what you want.
+
+### What the worker binds to
+
+Workers do not bind any inbound listener in the current build. They run as outbound-only clients: each worker dials the coordinator's worker-facing port (`50051` by default) and stays connected. Workers are not contacted by anyone over the network. The coordinator does not connect outbound to workers; it waits for workers to connect inbound to it. This is why workers behind NAT or restrictive firewalls usually work without special routing. As long as outbound to `<coordinator>:50051` is allowed, the worker is fine, regardless of what the worker host's inbound rules look like.
+
+The current coordinator build is the only component that exposes a metrics endpoint. Workers do not run a metrics server; observe worker health indirectly through coordinator metrics and through host-level monitoring on the worker host.
+
+---
+
+## What state lives where
+
+A useful way to think about a distributed prover is to ask,
+for each role, what does it need to remember? The answer
+shapes everything from backup strategy to incident response.
+
+The **host** keeps your application's state: your input,
+where the resulting proof needs to go, what to do next. The
+proof arrives back as a single self contained object, so the
+host's only relationship with the cluster is "submit a job,
+receive a proof". Nothing about the cluster's internal state
+is the host's concern.
+
+The **coordinator** keeps the in flight job state: which
+segments belong to which job, which worker is holding each
+segment, which segment proofs have arrived and where they
+sit in the aggregation tree, and the cache of derived
+proving keys for every program ever set up against it. This
+is the only stateful component you need to think about for
+backups or high availability.
+
+A **worker** keeps only the segment (or segments) it is
+currently working on. Workers are stateless across jobs. The
+operational implication of that asymmetry is significant. If
+the coordinator host dies, every in flight job fails, and
+every host that submitted those jobs needs to retry. If a
+worker host dies, only the in flight jobs that had segments
+assigned to that worker fail; the coordinator detects the
+heartbeat drop and re assigns the dropped segments to other
+workers, and the rest of the cluster keeps going. The blast
+radius of a coordinator outage is much larger than the
+blast radius of a worker outage, which is why the
+coordinator is the component to invest reliability effort
+in.
+
+---
+
+## How aggregation scales
+
+The aggregation step exploits the fact that the recursive
+tree is **opportunistic**. The diagram on the
+[Recursion and aggregation](/intro/deep/recursion#the-aggregation-tree)
+page shows the tree's shape; the operational consequence is
+that distributed workers do not need to coordinate on the
+shape of the tree. They only need to agree on which
+segments they own. As proofs complete, the coordinator
+stitches them upward, building the tree as it goes.
+
+Because the tree is binary and unbalanced, a worker that
+finishes early on a small segment can have its proof folded
+into the tree immediately while heavier workers are still
+running. There is no global synchronisation step where every
+worker has to wait for every other worker to finish before
+aggregation can start. Adding more workers just adds more
+leaves to the tree, with no shared serial bottleneck.
+
+This is why the cluster scales close to linearly with worker
+count for many concurrent jobs. The only serial work on the
+proving side is the coordinator's aggregation, and that
+work is cheap compared to the proving itself.
+
+---
+
+## Failure modes you should expect
+
+Distributed systems fail in ways that monolithic systems do
+not, and a cluster operator needs a working mental model of
+those failure modes before deploying one in anger. The four
+modes below cover the cases you will actually see in
+practice.
+
+| Failure | What happens | Recovery |
+| --- | --- | --- |
+| A worker dies mid job | The coordinator notices when the heartbeat stops (default 30 seconds) and re assigns the dropped segments to other workers. | Automatic. The host application typically does not see anything go wrong unless it was watching metrics. |
+| A worker is slow but alive | Nothing fails, but the slowest segment blocks aggregation. The coordinator does not preempt or re assign on slowness alone. | Operator tuning. Lower the slow worker's advertised compute units so the coordinator hands it less work. |
+| The coordinator dies | All in flight jobs fail. Hosts get a transport error and need to retry. | Workers reconnect automatically when the coordinator returns; hosts must resubmit any jobs that were in flight. |
+| The network blips | Workers reconnect with backoff (default 5 seconds). | Hosts with `request_timeout` higher than the blip see the proof eventually return. Lower timeouts surface as transport errors. |
+
+The [Monitoring](../monitoring) section has the runbook for
+each of these, including the metrics that surface them and
+the operational responses that resolve them.
+
+---
+
+## Summary
+
+If you remember three sentences from this page, they should
+be the following three. **One coordinator, many workers,
+all gRPC**, with the coordinator stateful and the workers
+not. **Three coordinator ports for three audiences**, with
+applications on 7000, workers on 50051, and monitoring on
+9090, each with different firewall rules. **Workers are
+interchangeable**, which means you add and remove them
+freely; the coordinator is the single critical path, which
+means its host needs to be the healthiest one in the
+cluster.
+
+The rest is configuration and operations, which the next
+pages cover concretely.
+
+---
+
+## Next steps
+
+Continue to [Quickstart](./quickstart) to bring this
+architecture up on your own machine: one coordinator, one
+worker, one proof. If you would rather skip ahead to a real
+multi host (or multi container) deployment with the
+architecture concepts as background, [Deploy in Linux
+server](../deploying/linux-server) and [Deploy via
+docker-compose](../deploying/docker-compose) are the two
+production paths.

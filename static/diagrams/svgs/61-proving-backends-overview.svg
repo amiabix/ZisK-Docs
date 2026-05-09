@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1900 660" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.or-divider { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; fill: #7E7F8C; font-weight: 600; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.6; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.4; stroke-dasharray: 5 4; }
+.stage-num { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; fill: #00B359; font-weight: 700; }
+    ]]></style>
+    <marker id="arr-fp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+    <marker id="arr-fp-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/></marker>
+  </defs>
+
+
+  <!-- Stage 1: Source -->
+  <g class="n-art" transform="translate(40,310)">
+    <rect width="160" height="80" rx="8"/>
+    <text class="name" x="80" y="48" text-anchor="middle">RISC-V ELF</text>
+  </g>
+
+  <!-- Stage 2: Backend -->
+  <g class="subgraph">
+    <rect x="260" y="80" width="340" height="540" rx="12"/>
+    <text class="label" x="280" y="106">Pick one</text>
+  </g>
+
+  <g class="n-chip" transform="translate(290,180)">
+    <rect width="280" height="70" rx="8"/>
+    <text class="name" x="140" y="42" text-anchor="middle">EmbeddedClient</text>
+  </g>
+
+  <text class="or-divider" x="430" y="290" text-anchor="middle">— or —</text>
+
+  <g class="n-chip" transform="translate(290,330)">
+    <rect width="280" height="70" rx="8"/>
+    <text class="name" x="140" y="42" text-anchor="middle">RemoteClient</text>
+  </g>
+
+  <!-- mini cluster sketch under RemoteClient -->
+  <g class="n-chip" transform="translate(296,440)"><rect width="100" height="36" rx="5"/><text class="name" x="50" y="24" text-anchor="middle" style="font-size:11px;">coord</text></g>
+  <g class="n-chip" transform="translate(404,440)"><rect width="76" height="36" rx="5"/><text class="name" x="38" y="24" text-anchor="middle" style="font-size:11px;">worker</text></g>
+  <g class="n-chip" transform="translate(488,440)"><rect width="76" height="36" rx="5"/><text class="name" x="38" y="24" text-anchor="middle" style="font-size:11px;">worker</text></g>
+
+  <!-- Stage 3: Executor -->
+  <g class="subgraph">
+    <rect x="660" y="180" width="240" height="320" rx="12"/>
+    <text class="label" x="680" y="206">Pick one</text>
+  </g>
+
+  <g class="n-chip" transform="translate(690,260)">
+    <rect width="180" height="70" rx="8"/>
+    <text class="name" x="90" y="42" text-anchor="middle">Rust emulator</text>
+  </g>
+  <text class="or-divider" x="780" y="362" text-anchor="middle">— or —</text>
+  <g class="n-chip" transform="translate(690,390)">
+    <rect width="180" height="70" rx="8"/>
+    <text class="name" x="90" y="42" text-anchor="middle">Assembly emulator</text>
+  </g>
+
+  <!-- Stage 4: STARK prover -->
+  <g class="n-chip" transform="translate(960,310)">
+    <rect width="240" height="80" rx="8"/>
+    <text class="name" x="120" y="48" text-anchor="middle">STARK prover</text>
+  </g>
+
+  <!-- Stage 5: Optional PLONK wrap -->
+  <g transform="translate(1260,420)">
+    <rect width="220" height="70" rx="8" fill="#FFFFFF" stroke="#6E5BE0" stroke-width="1.5" stroke-dasharray="5 4"/>
+    <text x="110" y="44" text-anchor="middle" style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:600;fill:#15161D;">PLONK wrap</text>
+  </g>
+
+  <!-- Stage 6: Single output -->
+  <g class="n-out" transform="translate(1580,310)">
+    <rect width="260" height="80" rx="8"/>
+    <text class="name" x="130" y="48" text-anchor="middle">Verifiable proof</text>
+  </g>
+
+  <!-- Connections -->
+  <path class="edge" d="M 200 350 L 260 350" marker-end="url(#arr-fp)"/>
+  <path class="edge" d="M 600 350 L 660 350" marker-end="url(#arr-fp)"/>
+  <path class="edge" d="M 900 350 L 960 350" marker-end="url(#arr-fp)"/>
+
+  <!-- STARK → proof (solid, default path) -->
+  <path class="edge" d="M 1200 350 L 1580 350" marker-end="url(#arr-fp)"/>
+
+  <!-- STARK → PLONK wrap → proof (dashed, optional path · clean S-curves) -->
+  <path class="edge-dim" d="M 1200 380 C 1230 380, 1230 455, 1260 455" marker-end="url(#arr-fp-dim)"/>
+  <path class="edge-dim" d="M 1480 455 C 1530 455, 1530 350, 1580 350" marker-end="url(#arr-fp-dim)"/>
+</svg>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1500 380" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-out text.sub { fill: #007755; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+    ]]></style>
+    <marker id="arr50" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-chip" transform="translate(40,150)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">caller</text><text class="name" x="90" y="50" text-anchor="middle">Host</text></g>
+  <g class="n-chip" transform="translate(280,150)"><rect width="180" height="80" rx="8"/><text class="kind" x="90" y="22" text-anchor="middle">prover</text><text class="name" x="90" y="50" text-anchor="middle">Prover</text></g>
+  <g class="n-art" transform="translate(540,150)">
+    <rect width="220" height="80" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">artifact</text>
+    <text class="name" x="110" y="48" text-anchor="middle">STARK</text>
+    <text class="sub" x="110" y="64" text-anchor="middle">default</text>
+  </g>
+
+  <g class="n-out" transform="translate(880,40)">
+    <rect width="280" height="80" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">output</text>
+    <text class="name" x="140" y="48" text-anchor="middle">Minimal STARK</text>
+    <text class="sub" x="140" y="64" text-anchor="middle">smaller, off-chain</text>
+  </g>
+  <g class="n-out" transform="translate(880,260)">
+    <rect width="280" height="80" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">output</text>
+    <text class="name" x="140" y="48" text-anchor="middle">PLONK</text>
+    <text class="sub" x="140" y="64" text-anchor="middle">constant-size, on-chain</text>
+  </g>
+
+  <path class="edge" d="M 220 190 L 280 190" marker-end="url(#arr50)"/>
+  <path class="edge" d="M 460 190 L 540 190" marker-end="url(#arr50)"/>
+  <path class="edge" d="M 760 175 C 820 175, 840 80, 880 80" marker-end="url(#arr50)"/>
+  <path class="edge" d="M 760 205 C 820 205, 840 300, 880 300" marker-end="url(#arr50)"/>
+</svg>

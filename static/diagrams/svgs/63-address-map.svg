@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1300 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.addr { font-family: 'IBM Plex Mono', monospace; font-size: 14px; fill: #4A4C59; font-weight: 500; }
+.tick { stroke: #B9B9C5; stroke-width: 1; }
+
+.region rect { stroke-width: 1; }
+.region text.name { font-weight: 600; font-size: 16px; }
+.region text.size { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+.region text.desc { font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+
+.r-art rect { fill: #007755; stroke: #00553D; }
+.r-art text.name { fill: #FFFFFF; }
+.r-art text.size { fill: #B9F0CF; }
+
+.r-dec rect { fill: #F3F3F2; stroke: #007755; stroke-width: 1.4; }
+.r-dec text.name { fill: #15161D; }
+.r-dec text.size { fill: #4A4C59; }
+
+.r-chip rect { fill: #2D2E3D; stroke: #15161D; }
+.r-chip text.name { fill: #FFFFFF; }
+.r-chip text.size { fill: #B9B9C5; }
+
+.r-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.r-out text.name { fill: #15161D; }
+.r-out text.size { fill: #007755; }
+
+.r-gap rect { fill: rgba(110,91,224,0.06); stroke: #6E5BE0; stroke-width: 1; stroke-dasharray: 4 4; }
+.r-gap text.name { fill: #6E5BE0; font-style: italic; }
+
+.col-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.desc-text { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; fill: #4A4C59; }
+    ]]></style>
+  </defs>
+
+  <!-- Column headers -->
+  <text class="col-label" x="40" y="60">Address</text>
+  <text class="col-label" x="320" y="60">Region</text>
+  <text class="col-label" x="900" y="60">Description</text>
+
+  <!-- Region 1: Input data (0x40000000 - 0x80000000), 1 GB -->
+  <text class="addr" x="240" y="120" text-anchor="end">0x4000_0000</text>
+  <line class="tick" x1="40" y1="106" x2="280" y2="106"/>
+  <g class="region r-art" transform="translate(320,90)">
+    <rect width="540" height="80" rx="6"/>
+    <text class="name" x="30" y="44">Input data</text>
+    <text class="size" x="510" y="44" text-anchor="end">1 GB</text>
+  </g>
+  <text class="desc-text" x="900" y="138">execution input · written before run</text>
+
+  <!-- Region 2: ROM data (0x80000000 - 0x88000000), 128 MB -->
+  <text class="addr" x="240" y="200" text-anchor="end">0x8000_0000</text>
+  <line class="tick" x1="40" y1="186" x2="280" y2="186"/>
+  <g class="region r-dec" transform="translate(320,170)">
+    <rect width="540" height="80" rx="6"/>
+    <text class="name" x="30" y="44">ROM data</text>
+    <text class="size" x="510" y="44" text-anchor="end">128 MB</text>
+  </g>
+  <text class="desc-text" x="900" y="218">program constants · read-only</text>
+
+  <!-- Gap region: 0x88000000 - 0xA0000000 -->
+  <text class="addr" x="240" y="280" text-anchor="end">0x8800_0000</text>
+  <line class="tick" x1="40" y1="266" x2="280" y2="266"/>
+  <g class="region r-gap" transform="translate(320,250)">
+    <rect width="540" height="60" rx="6"/>
+    <text class="name" x="270" y="36" text-anchor="middle">…  reserved / unmapped</text>
+  </g>
+  <text class="desc-text" x="900" y="284">unmapped address range</text>
+
+  <!-- Region 4: System region (0xA0000000 - 0xA0010000), 64 KB -->
+  <text class="addr" x="240" y="340" text-anchor="end">0xA000_0000</text>
+  <line class="tick" x1="40" y1="326" x2="280" y2="326"/>
+  <g class="region r-chip" transform="translate(320,310)">
+    <rect width="540" height="80" rx="6"/>
+    <text class="name" x="30" y="44">System region</text>
+    <text class="size" x="510" y="44" text-anchor="end">64 KB</text>
+  </g>
+  <text class="desc-text" x="900" y="358">RISC-V regs · CSR</text>
+
+  <!-- Region 5: Output data (0xA0010000 - 0xA0030000) -->
+  <text class="addr" x="240" y="420" text-anchor="end">0xA001_0000</text>
+  <line class="tick" x1="40" y1="406" x2="280" y2="406"/>
+  <g class="region r-out" transform="translate(320,390)">
+    <rect width="540" height="80" rx="6"/>
+    <text class="name" x="30" y="44">Output data</text>
+    <text class="size" x="510" y="44" text-anchor="end">128 KB</text>
+  </g>
+  <text class="desc-text" x="900" y="438">reserved public-output region</text>
+
+  <!-- Region 6: Program memory (0xA0030000 - 0xC0000000), ~512 MB -->
+  <text class="addr" x="240" y="500" text-anchor="end">0xA003_0000</text>
+  <line class="tick" x1="40" y1="486" x2="280" y2="486"/>
+  <g class="region r-art" transform="translate(320,470)">
+    <rect width="540" height="80" rx="6"/>
+    <text class="name" x="30" y="44">Program memory</text>
+    <text class="size" x="510" y="44" text-anchor="end">~512 MB</text>
+  </g>
+  <text class="desc-text" x="900" y="518">heap + stack · read/write</text>
+
+  <!-- Bottom address marker -->
+  <text class="addr" x="240" y="580" text-anchor="end">0xC000_0000</text>
+  <line class="tick" x1="40" y1="566" x2="280" y2="566"/>
+
+  <!-- Vertical address spine -->
+  <line x1="280" y1="100" x2="280" y2="566" stroke="#D9DCE3" stroke-width="1"/>
+
+  <!-- Legend at bottom -->
+  <text class="col-label" x="40" y="640">Legend</text>
+  <g transform="translate(40,650)">
+    <rect class="region r-art" x="0" y="0" width="14" height="14" rx="2" style="fill:#007755;stroke:#00553D;"/>
+    <text class="desc-text" x="22" y="12">data region (read-only or read/write)</text>
+
+    <rect x="320" y="0" width="14" height="14" rx="2" style="fill:#F3F3F2;stroke:#007755;stroke-width:1.4;"/>
+    <text class="desc-text" x="342" y="12">read-only constants</text>
+
+    <rect x="540" y="0" width="14" height="14" rx="2" style="fill:#2D2E3D;stroke:#15161D;"/>
+    <text class="desc-text" x="562" y="12">system / control</text>
+
+    <rect x="740" y="0" width="14" height="14" rx="2" style="fill:#B9F0CF;stroke:#00B359;stroke-width:1.2;"/>
+    <text class="desc-text" x="762" y="12">public output</text>
+
+    <rect x="900" y="0" width="14" height="14" rx="2" style="fill:rgba(110,91,224,0.06);stroke:#6E5BE0;stroke-dasharray:3 3;"/>
+    <text class="desc-text" x="922" y="12">unmapped</text>
+  </g>
+</svg>

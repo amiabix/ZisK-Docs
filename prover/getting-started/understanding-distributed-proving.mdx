@@ -1,0 +1,254 @@
+---
+id: understanding-distributed-proving
+sidebar_position: 1
+title: Understanding distributed proving
+description: Why proving is distributed, what problem it solves, and when running a multi-machine cluster is the right call.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+A ZisK cluster is a coordinator orchestrating a pool of workers
+that prove segments of a single execution in parallel. Before
+deploying anything, this page explains why the prover has that
+shape at all: what pressure pushes proving across multiple
+machines, when distributed proving is the right answer, and
+when the embedded prover is the right answer instead.
+
+</Summary>
+
+## What proving costs, and why it is the bottleneck
+
+A ZisK proof is a STARK over a long execution trace. The
+proving work is dominated by two things, and understanding
+both of them is the easiest way to understand why proving
+ever needs to be distributed.
+
+The first cost is **trace materialisation**. The prover holds
+each segment's witness in memory while it computes the
+constraints over it. For a non trivial program, a single
+segment's witness occupies multiple gigabytes of RAM. Even on
+a generously specced host, only a small number of segments
+fit in memory at any one time, which puts a hard ceiling on
+how much work a single machine can do concurrently.
+
+The second cost is the **polynomial arithmetic over the
+trace**: FRI commitments, low degree extensions, and Merkle
+hashing across the trace columns. This is CPU and memory
+bandwidth heavy work, and crucially it is the kind of work
+that does not scale by adding more cores past a certain
+point. Once the memory bus saturates, additional cores spend
+their time waiting on memory rather than doing useful
+arithmetic, and you stop getting throughput improvements
+proportional to the cores you added.
+
+To put numerical scale on those two costs: a "small" guest
+program (a hash, a signature verification) fits in a few
+gigabytes of RAM and proves on a laptop in seconds to
+minutes. A "real" workload (a batch of state transitions, a
+rollup block, a long trace) quickly demands tens of gigabytes
+of RAM and minutes of CPU on a single host. That gap is the
+boundary where distributing the work starts to make sense,
+and the rest of this page is about why.
+
+---
+
+## Two pressures push proving across machines
+
+Distributed proving is not a single problem with a single
+solution. It is the response to two distinct pressures, and
+they show up in different orders depending on what your
+workload looks like.
+
+![Single host vs cluster: a single embedded host hits a RAM ceiling with active segments capped and the rest queued; a cluster places a coordinator on top of multiple worker hosts that each prove segments in parallel, so the whole trace lives in memory across the pool](/diagrams/svgs/66-host-vs-cluster.svg)
+
+### When the trace does not fit on one host
+
+A long execution produces a long trace, and ZisK splits that
+trace into bounded chunks called segments so that the prover
+can hold them in RAM one at a time. Even after that splitting,
+each segment is large enough to make a single host's memory
+the limiting factor. A host of any plausible size has some
+upper bound on how many segments it can hold concurrently,
+and that bound is what determines how parallelisable the
+proving work is on that host.
+
+Adding more cores does not help past that point. The prover
+is not waiting on CPU; it is waiting on memory. Distributed
+proving sidesteps the constraint by giving each worker only
+a small number of segments at a time. The worker pool
+collectively holds the whole trace in memory, but no single
+machine has to.
+
+### When you want throughput
+
+The second pressure is throughput. Even when the trace fits
+on one host, doing one proof at a time on one host means the
+next proof waits behind the current one. If you produce one
+proof per second per worker and you need three proofs per
+second, you need three workers running in parallel. There is
+no other way to multiply throughput.
+
+Multiple workers chew through segments of independent jobs
+in parallel, so end to end latency for a single big proof
+drops, and throughput for many small concurrent proofs scales
+close to linearly with worker count. The aggregation step
+(stitching segment proofs into a final proof) is cheap
+relative to the proving itself, so adding workers mainly
+buys you proving capacity rather than aggregation overhead.
+
+---
+
+## When the embedded prover is the right answer
+
+A small program on a workstation will almost always be
+faster end to end with the **embedded prover** (the one that
+runs in your application's process) than on even a small
+cluster. The reason is overhead. A remote cluster adds a
+network round trip for the request, gRPC serialisation on
+both sides, a coordinator handing work to workers over
+another gRPC connection, and segment proofs flowing back to
+be aggregated. None of that overhead is huge in absolute
+terms, but for a proof that finishes in thirty seconds
+embedded, the network and coordination can easily turn into
+a meaningful fraction of total time.
+
+The break even point depends on your hardware, but a useful
+rule of thumb is captured below. If you do not see your
+workload in the bottom three rows, the embedded prover is
+the right tool, and you should not be deploying a cluster
+yet.
+
+| Your proving workload | What to use |
+| --- | --- |
+| Single host has plenty of RAM, you prove infrequently | Embedded prover. |
+| Single host has plenty of RAM, you need throughput | Embedded prover, scaled by running multiple host processes. |
+| Single host runs out of RAM on your workload | Distributed prover. |
+| Latency for a single big proof is unacceptable | Distributed prover, parallelising across workers. |
+| You want to share a prover pool across teams or services | Distributed prover, with the coordinator becoming the shared resource. |
+
+:::tip
+The remote and embedded clients have **identical** call
+signatures. You can develop and test against the embedded
+prover on a laptop, then point the same code at a production
+cluster by changing one line. See [Testing your
+deployment](../deploying/testing#embedded-versus-remote-the-one-line-that-changes)
+for the exact comparison and the production friendly pattern
+that uses one or the other depending on whether the build is
+debug or release.
+:::
+
+---
+
+## What stays the same versus the embedded prover
+
+From the SDK's point of view, the distributed prover is the
+same shape as the embedded one. You construct a `ProverClient`
+with a different builder, and every operation on the client
+has the same signature regardless of which builder you used.
+
+| Operation | Embedded prover | Distributed prover |
+| --- | --- | --- |
+| Construct client | `ProverClient::embedded().build()?` | `ProverClient::remote("https://coord.example").build()?` |
+| Upload | `client.upload(&PROGRAM).run()?` (no-op locally) | **Required before setup.** Uploads the ELF to the coordinator and registers it by content hash. Skipping this means setup has no ELF to register against. |
+| Setup | `client.setup(&PROGRAM).run()?.await?` | Same call shape. Sends `{ hash_id, program_name, with_hints }` only; does not re-upload the ELF. |
+| Execute | `client.execute(&PROGRAM, stdin).run()?…` | Same call. The work runs on a worker. |
+| Prove | `client.prove(&PROGRAM, stdin).run()?…` | Same call. Coordinator and workers fan out internally. |
+| Verify | `proof.verify()?` | Identical. Verification is local and runs in milliseconds. |
+
+`upload` is a no-op on the embedded backend (the program is already local), so the same call sequence works against either backend without changes. On the remote backend it is the call that ships the ELF bytes; setup only references the program by hash thereafter.
+
+The `Proof` object the cluster returns is the same `Proof`
+that an embedded prover returns. The verifier does not know
+(and does not need to know) which one produced it. That
+symmetry is deliberate and is the property that makes the
+SDK practical to develop against.
+
+---
+
+## When not to deploy distributed proving
+
+There are three honest "do not bother" cases worth naming
+explicitly, because the operational cost of running a
+cluster is real and the conceptual elegance of the
+distributed shape can make it tempting to deploy one before
+you actually need it.
+
+The first case is **prototyping**. The embedded prover lets
+you iterate on the guest program and the host application
+without standing up any infrastructure. You can pay the
+infrastructure cost later, when the embedded prover stops
+being enough, but you cannot easily reverse the time spent
+deploying a cluster you did not need.
+
+The second case is **small and infrequent workloads**. A
+handful of proofs per day, each fitting in a few gigabytes of
+RAM, runs cheaper and faster on the embedded prover than on
+even a one host cluster. The operational burden (monitoring,
+restarts, capacity tuning) is fixed regardless of how many
+proofs flow through the cluster, so a low traffic cluster
+spends most of its time idle while still requiring the same
+attention as a busy one.
+
+The third case is **a single host machine**. A "cluster" of
+one coordinator and one worker on the same host is what the
+[Quickstart](./quickstart) brings up, and it works as a
+learning exercise, but the only reason to run that
+configuration in anger is to understand the shape. The
+overhead of the remote path makes it slower than embedded
+for the same workload, with no compensating benefit.
+
+The cluster shape pays off when at least one of the three
+conditions in the table above is true: the trace exceeds a
+single host's memory, throughput requires multiple hosts in
+parallel, or you want to share a prover pool. If none of
+those apply, the embedded prover is the right call and the
+rest of this section can wait.
+
+---
+
+## What distributed proving does not solve
+
+A common misunderstanding worth addressing directly:
+distributing proving across more workers does not make a
+single tiny segment finish faster. Inside a segment, the
+prover is a single process job, and it does not fan out
+further. What more workers buy you is the ability to run
+**more segments in parallel**, which lowers end to end
+latency for a long job and raises throughput for many
+concurrent jobs.
+
+:::info
+A practical consequence worth internalising: end to end
+latency for one job is governed by the **slowest segment**,
+not by the average. If you have three workers and one of
+them is on a slow disk or contending with another process,
+that one segment determines your wall clock latency for the
+whole job. Per worker capacity tuning matters, and the
+deployment guides cover how to size each worker correctly.
+:::
+
+---
+
+## Summary
+
+Distributed proving is **horizontal scaling**, not a magic
+speed up. It pays off when one host runs out of RAM, when a
+single big proof's latency is unacceptable, or when a shared
+prover pool is what you need. For everything else, embedded
+proving is faster end to end and operationally cheaper. The
+cluster's job is to give every worker a slice of the trace
+small enough to hold in memory, run those slices in parallel,
+and aggregate the segment proofs back into a single final
+proof.
+
+---
+
+## Next steps
+
+Continue to [Prover Architecture](./architecture) for the
+concrete components, ports, and traffic flows that make up a
+real cluster. After that, the [Quickstart](./quickstart)
+brings up a coordinator and a worker on your own machine so
+that you can see all of this on real hardware.

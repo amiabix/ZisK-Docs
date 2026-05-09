@@ -1,0 +1,218 @@
+---
+id: hash-functions
+title: Hash functions
+sidebar_position: 1
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+description: SHA-256, Keccak-f[1600], BLAKE2b round, and Poseidon2
+  compression syscalls.
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Raw hash syscalls that drive the zkVM's dedicated hash state machines.
+Each call applies one round or full permutation in-place. Use
+`zisklib` wrappers for automatic padding and multi-block handling.
+
+</Summary>
+
+## Module overview
+
+This page documents the raw syscall entry points into ZisK's hash precompile state machines. Each call drives one permutation or compression on a fixed-size state, and writes back in-place through the supplied reference or pointer.
+
+The high-level Rust wrappers in [`zisklib`](/references/zisk-os/zisklib/hash-functions) (`sha256(input)`, `keccak256(input)`, etc.) sit on top of these syscalls. The wrappers handle padding, length encoding, and multi-block iteration.
+
+The raw syscalls operate on a single block or permutation input only. The caller manages state initialization, padding, message scheduling, and byte-order conventions.
+
+## When to use raw syscalls
+
+Reach for `syscall_sha256_f`, `syscall_keccak_f`, `syscall_blake2b_round`, or `syscall_poseidon2` when the wrapper API is not enough:
+
+- A custom hash construction such as a Merkle-Damgard variant or a sponge with a non-standard rate.
+- Interleaved hashing with other operations, for example incremental tree updates that mutate state between blocks.
+- Bit-exact output for protocol compatibility, for example walking an Ethereum trie or matching a fixed reference vector.
+
+For an ordinary digest of a byte sequence, use the [`zisklib` wrappers](/references/zisk-os/zisklib/hash-functions). They produce identical proofs at the same precompile cost with fewer footguns.
+
+<FnPanel>
+
+<FnDef name="syscall_sha256_f">
+
+One full SHA-256 compression: takes a 256-bit chaining value and a 512-bit message block, runs the 64 rounds of message schedule plus compression, and writes the new state back in place. The wrapper feeds initialization vector, padding, and length suffix; this syscall does none of that.
+
+SHA-256 extend-and-compress round. Applies one full compression to
+`params.state` using the 512-bit message block in `params.input`. The
+state is modified in-place through the struct reference.
+
+```rust
+pub extern "C" fn syscall_sha256_f(
+    params: &mut SyscallSha256Params,
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+)
+```
+
+The `SyscallSha256Params` struct is defined as:
+
+```rust
+#[repr(C)]
+pub struct SyscallSha256Params<'a> {
+    pub state: &'a mut [u64; 4],
+    pub input: &'a [u64; 8],
+}
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `params.state` | `&mut [u64; 4]` | 4 × u64 words (256 bits) representing the current hash state. Modified in-place. |
+| `params.input` | `&[u64; 8]` | 8 × u64 words (512 bits) representing the message block. |
+| `hints` | `&mut Vec<u64>` | Only present with the `hints` feature; receives the post-compression state. |
+
+#### Returns
+
+Nothing. The hash state inside `params` is updated in-place.
+
+#### Example
+
+```rust
+let mut state: [u64; 4] = [
+    0x6a09e667bb67ae85, 0x3c6ef372a54ff53a,
+    0x510e527f9b05688c, 0x1f83d9ab5be0cd19,
+];
+let input = [0u64; 8]; // 512-bit message block
+let mut params = SyscallSha256Params { state: &mut state, input: &input };
+syscall_sha256_f(&mut params);
+```
+
+</FnDef>
+
+<FnDef name="syscall_keccak_f">
+
+The Keccak-f[1600] permutation: 24 rounds applied to a 1600-bit state held as 25 u64 lanes. It is the inner primitive of Keccak-256, SHA-3, and any sponge built on this permutation. Absorbing message blocks, applying the multi-rate padding rule, and squeezing output are the caller's responsibility; the wrapper covers the Keccak-256 case.
+
+Keccak-f[1600] permutation. Applies all 24 rounds of the permutation
+in-place to the 25-word u64 state used by Keccak-256 and SHA-3.
+
+```rust
+pub unsafe extern "C" fn syscall_keccak_f(
+    state: *mut [u64; 25],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `state` | `*mut [u64; 25]` | Pointer to a 25 × u64 array representing the Keccak state. Modified in-place. |
+| `hints` | `&mut Vec<u64>` | Only present with the `hints` feature; receives the post-permutation state. |
+
+#### Returns
+
+Nothing. The state array pointed to by `state` is updated in-place.
+
+#### Example
+
+```rust
+let mut state = [0u64; 25];
+unsafe { syscall_keccak_f(&mut state) };
+```
+
+</FnDef>
+
+<FnDef name="syscall_blake2b_round">
+
+One BLAKE2b mixing round: applies the round-`index` permutation of the message words to the 16-lane working state. A full BLAKE2b compression is ten such rounds (`index` 0 through 9). Counter setup, finalization flag, parameter block, and chaining are handled by the wrapper, not by this syscall.
+
+BLAKE2b round function. Applies one mixing round (selected by
+`params.index`) to the 16-word u64 working state, mixing in the
+message block held in `params.input`.
+
+```rust
+pub extern "C" fn syscall_blake2b_round(
+    params: &mut SyscallBlake2bRoundParams,
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+)
+```
+
+The `SyscallBlake2bRoundParams` struct is defined as:
+
+```rust
+#[repr(C)]
+pub struct SyscallBlake2bRoundParams<'a> {
+    pub index: u64, // a number in [0,10)
+    pub state: &'a mut [u64; 16],
+    pub input: &'a [u64; 16],
+}
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `params.index` | `u64` | Round selector; must be in `[0, 10)`. |
+| `params.state` | `&mut [u64; 16]` | 16 × u64 words representing the BLAKE2b working state. Modified in-place. |
+| `params.input` | `&[u64; 16]` | 16 × u64 words representing the message block being mixed in. |
+| `hints` | `&mut Vec<u64>` | Only present with the `hints` feature; receives the post-round state. |
+
+#### Returns
+
+Nothing. The state inside `params` is updated in-place.
+
+#### Example
+
+```rust
+let mut state = [0u64; 16];
+let input = [0u64; 16];
+let mut params = SyscallBlake2bRoundParams { index: 0, state: &mut state, input: &input };
+syscall_blake2b_round(&mut params);
+```
+
+</FnDef>
+
+<FnDef name="syscall_poseidon2">
+
+The Poseidon2 permutation over a 16-element Goldilocks state. Each lane is a `u64` interpreted as a field element modulo the Goldilocks prime; out-of-range inputs are reduced by the precompile. Sponge or compression wrapping (rate, capacity, padding) is the caller's job.
+
+Poseidon2 compression function. Applies the full Poseidon2
+permutation in-place to a 16-word Goldilocks state array.
+
+```rust
+pub unsafe extern "C" fn syscall_poseidon2(
+    state: *mut [u64; 16],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `state` | `*mut [u64; 16]` | Pointer to a 16 × u64 array representing the Poseidon2 state, where each element is interpreted as a Goldilocks field element. Modified in-place. |
+| `hints` | `&mut Vec<u64>` | Only present with the `hints` feature; receives the post-permutation state. |
+
+#### Returns
+
+Nothing. The state array is updated in-place after the permutation.
+
+#### Example
+
+```rust
+let mut state = [0u64; 16];
+unsafe { syscall_poseidon2(&mut state) };
+```
+
+</FnDef>
+
+</FnPanel>
+
+## See also
+
+- [zisklib hash functions](/references/zisk-os/zisklib/hash-functions): high-level wrappers (`sha256`, `keccak256`, etc.) that handle padding and multi-block iteration.
+- [Precompiles](/references/zisk-os/precompiles): index of all ZisK precompile state machines.
+- [Hints](/references/zisk-sdk/hints): host-side stream consumed when the `hints` feature is enabled on these syscalls.

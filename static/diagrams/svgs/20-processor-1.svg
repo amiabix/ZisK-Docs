@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1240 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr20" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-art" transform="translate(40,80)">
+    <rect width="200" height="80" rx="8"/>
+    <text class="kind" x="100" y="22" text-anchor="middle">artifact</text>
+    <text class="name" x="100" y="50" text-anchor="middle">Rust crate</text>
+  </g>
+  <g class="n-art" transform="translate(360,80)">
+    <rect width="220" height="80" rx="8"/>
+    <text class="kind" x="110" y="22" text-anchor="middle">artifact</text>
+    <text class="name" x="110" y="48" text-anchor="middle">RISC-V ELF</text>
+    <text class="sub" x="110" y="64" text-anchor="middle">RV64IMA</text>
+  </g>
+  <g class="n-art" transform="translate(700,80)">
+    <rect width="200" height="80" rx="8"/>
+    <text class="kind" x="100" y="22" text-anchor="middle">artifact</text>
+    <text class="name" x="100" y="50" text-anchor="middle">ZisK ROM</text>
+  </g>
+  <g class="n-chip" transform="translate(1000,80)">
+    <rect width="200" height="80" rx="8"/>
+    <text class="kind" x="100" y="22" text-anchor="middle">runtime</text>
+    <text class="name" x="100" y="50" text-anchor="middle">Emulator + prover</text>
+  </g>
+
+  <path class="edge" d="M 240 120 L 360 120" marker-end="url(#arr20)"/>
+  <text class="edge-label" x="300" y="110" text-anchor="middle">compile</text>
+
+  <path class="edge" d="M 580 120 L 700 120" marker-end="url(#arr20)"/>
+  <text class="edge-label" x="640" y="110" text-anchor="middle">transpile at load</text>
+
+  <path class="edge" d="M 900 120 L 1000 120" marker-end="url(#arr20)"/>
+</svg>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1400 480" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+    ]]></style>
+    <marker id="arr51" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="subgraph">
+    <rect x="40" y="40" width="560" height="400" rx="12"/>
+    <text class="label" x="60" y="70">Monolithic zkVM</text>
+  </g>
+  <g class="n-art" transform="translate(120,180)">
+    <rect width="400" height="160" rx="10"/>
+    <text class="kind" x="200" y="32" text-anchor="middle">single circuit</text>
+    <text class="name" x="200" y="78" text-anchor="middle">One big circuit</text>
+    <text class="name" x="200" y="104" text-anchor="middle">covers every instruction</text>
+    <text class="name" x="200" y="130" text-anchor="middle">proven sequentially</text>
+  </g>
+
+  <g class="subgraph">
+    <rect x="660" y="40" width="700" height="400" rx="12"/>
+    <text class="label" x="680" y="70">ZisK · modular chip mesh</text>
+  </g>
+
+  <g class="n-chip" transform="translate(910,110)">
+    <rect width="200" height="80" rx="8"/>
+    <text class="kind" x="100" y="22" text-anchor="middle">execution spine</text>
+    <text class="name" x="100" y="52" text-anchor="middle">Main</text>
+  </g>
+
+  <g class="n-chip" transform="translate(690,310)">
+    <rect width="140" height="70" rx="8"/>
+    <text class="kind" x="70" y="22" text-anchor="middle">specialist</text>
+    <text class="name" x="70" y="48" text-anchor="middle">Base Ops</text>
+  </g>
+  <g class="n-chip" transform="translate(850,310)">
+    <rect width="140" height="70" rx="8"/>
+    <text class="kind" x="70" y="22" text-anchor="middle">specialist</text>
+    <text class="name" x="70" y="48" text-anchor="middle">Memory</text>
+  </g>
+  <g class="n-chip" transform="translate(1010,310)">
+    <rect width="140" height="70" rx="8"/>
+    <text class="kind" x="70" y="22" text-anchor="middle">specialist</text>
+    <text class="name" x="70" y="48" text-anchor="middle">Precompiles</text>
+  </g>
+  <g class="n-chip" transform="translate(1170,310)">
+    <rect width="140" height="70" rx="8"/>
+    <text class="kind" x="70" y="22" text-anchor="middle">specialist</text>
+    <text class="name" x="70" y="48" text-anchor="middle">Tables</text>
+  </g>
+
+  <path class="edge" d="M 980 190 C 980 240, 760 270, 760 308" marker-end="url(#arr51)"/>
+  <path class="edge" d="M 1000 190 C 1000 240, 920 270, 920 308" marker-end="url(#arr51)"/>
+  <path class="edge" d="M 1020 190 C 1020 240, 1080 270, 1080 308" marker-end="url(#arr51)"/>
+  <path class="edge" d="M 1040 190 C 1040 240, 1240 270, 1240 308" marker-end="url(#arr51)"/>
+</svg>

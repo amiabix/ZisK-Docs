@@ -1,0 +1,53 @@
+---
+id: utils
+title: Utils
+sidebar_position: 8
+displayed_sidebar: referencesSidebar
+description: Utility subcommands for cache management.
+---
+
+Utility subcommands for project maintenance and cache management.
+
+```bash
+cargo-zisk utils <subcommand>
+```
+
+---
+
+## clean-cache
+
+Erase cached artifacts produced by `program-setup`, `execute`,
+`prove`, and related commands. Use this when you want a clean state
+after upgrading the toolchain or when you need to force setup to
+rebuild artifacts for a specific guest ELF.
+
+```bash
+cargo-zisk utils clean-cache [--elf <path> | --all]
+```
+
+### Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--elf <path>` | `-e` | Clean cached artifacts for one guest ELF. If omitted, the CLI auto-detects the current project ELF. |
+| `--all` | `-a` | Remove the entire ZisK cache. Conflicts with `--elf`. |
+
+### Examples
+
+Clean cached artifacts for the auto-detected project ELF:
+
+```bash
+cargo-zisk utils clean-cache
+```
+
+Clean cached artifacts for a specific ELF:
+
+```bash
+cargo-zisk utils clean-cache --elf target/elf/riscv64ima-zisk-zkvm-elf/release/my-guest
+```
+
+Remove the entire ZisK cache:
+
+```bash
+cargo-zisk utils clean-cache --all
+```

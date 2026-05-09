@@ -1,0 +1,81 @@
+---
+id: docker-compose
+sidebar_position: 2
+title: Deploy via docker-compose
+description: Future template for standing up a multi-worker ZisK cluster on a single host with one docker compose up. Not runnable today.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+This page is a **forward-looking template**. The `distributed/docker-compose.yml` file referenced below is not yet committed in the upstream `zisk` repository, so the commands here are not runnable against current source. Treat the page as a description of the intended deployment shape, not as a step-by-step guide.
+
+</Summary>
+
+:::warning
+**Not runnable today.** As of ZisK source `b63274507`, the upstream repo does not contain `distributed/docker-compose.yml` or the matching Dockerfiles. Every command on this page assumes a future file that has not landed yet. For a deployment you can run **today**, follow the [Linux server deployment](./linux-server). When the compose stack ships, this page will be updated with verified commands and a tested image tagging scheme.
+:::
+
+## When Docker Compose will be the right tool
+
+When the compose stack lands, it is meant for one host running the whole cluster: laptop demos of multi-worker proving, CI environments that spin a cluster up and tear it down per test run, on-premises proving rigs owned by one person, and fast iteration on config changes before promoting them to bare metal.
+
+It is the wrong tool in three cases that come up often enough to be worth naming. The first is **production deployments that span multiple hosts**: Compose does not orchestrate across machines, so anything bigger than one host needs Kubernetes or the systemd path. The second is **hosts where Docker is not available**, which includes some bare-metal proving rigs that disable container runtimes for performance reasons. The third is **long-running production where you want hardened service isolation, journald-aggregated logs, and unprivileged system users out of the box**: the [Linux server deployment](./linux-server) gives you those defaults; the Docker stack does not.
+
+For all three cases, use the Linux server deployment.
+
+---
+
+## Intended deployment shape
+
+When the compose stack lands, the intended flow looks like this. Treat each block as a placeholder; exact paths, image tags, and ports are subject to change.
+
+**Prerequisites.** A recent Docker engine with the v2-style `docker compose` CLI; the ZisK source tree cloned locally (the compose file lives in the repo); roughly 64 GB of free RAM if you intend to run more than two Assembly-emulator workers, or less if you switch them to the Rust emulator with `-l`.
+
+**Build images.** The stack will build two custom images, one for the coordinator and one for the worker, before starting the cluster:
+
+```bash
+# Template (not runnable until distributed/docker-compose.yml is committed)
+docker compose -f distributed/docker-compose.yml build
+```
+
+**Start the cluster.** With images built, bring up the cluster and scale workers as needed:
+
+```bash
+# Template
+docker compose -f distributed/docker-compose.yml up --scale worker=4
+```
+
+**Scale workers.** Add or remove workers without touching the coordinator:
+
+```bash
+# Template
+docker compose -f distributed/docker-compose.yml up -d --scale worker=16
+docker compose -f distributed/docker-compose.yml up -d --scale worker=2
+```
+
+**Stop the cluster.** Tear down with the standard compose lifecycle:
+
+```bash
+# Template
+docker compose -f distributed/docker-compose.yml down
+```
+
+The exact port mapping, volume layout, and service names are unsettled at this point; do not depend on any specific number from the snippets above when the stack actually ships.
+
+---
+
+## What ships in the meantime
+
+The repository today contains the deploy tooling under `distributed/deploy/scripts/`, which is what the [Linux server deployment](./linux-server) uses. The systemd-based deployment is the one you can run against current source. When the compose layer is added, it will reuse the same coordinator and worker binaries the systemd path runs; the difference is entirely operational.
+
+If you want to track when the compose stack lands, watch the upstream repo for changes under `distributed/` that introduce a `docker-compose.yml` and matching Dockerfiles.
+
+---
+
+## See also
+
+- [Linux server deployment](./linux-server): the deployment path that is runnable today against current source.
+- [Architecture](../getting-started/architecture): coordinator + worker topology, ports, and what each component does.
+- [Metrics and alerts](../monitoring/metrics-and-alerts): the actual coordinator metrics shipped by the current build.

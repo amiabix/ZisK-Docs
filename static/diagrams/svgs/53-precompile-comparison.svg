@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1400 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.tag-bad { fill: #C7301F; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; }
+.tag-good { fill: #00B359; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.6; }
+.divider { stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 4 4; }
+    ]]></style>
+    <marker id="arr53" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <!-- Left: In RISC-V instructions -->
+  <g class="subgraph">
+    <rect x="40" y="40" width="640" height="440" rx="12"/>
+    <text class="label" x="60" y="68">In RISC-V instructions</text>
+  </g>
+
+  <g class="n-art" transform="translate(80,100)">
+    <rect width="560" height="80" rx="8"/>
+    <text class="kind" x="280" y="22" text-anchor="middle">input</text>
+    <text class="name" x="280" y="50" text-anchor="middle">Hash block</text>
+    <text class="sub" x="280" y="68" text-anchor="middle">one SHA-256 compression round</text>
+  </g>
+
+  <g class="n-chip" transform="translate(80,220)">
+    <rect width="560" height="80" rx="8"/>
+    <text class="kind" x="280" y="22" text-anchor="middle">execution</text>
+    <text class="name" x="280" y="50" text-anchor="middle">Main + Base Operation chips</text>
+    <text class="sub" x="280" y="68" text-anchor="middle">decode + dispatch every instruction</text>
+  </g>
+
+  <g class="n-chip" transform="translate(80,340)">
+    <rect width="560" height="70" rx="8"/>
+    <text class="kind" x="280" y="22" text-anchor="middle">cost</text>
+    <text class="name" x="280" y="48" text-anchor="middle">thousands of constraints per hash</text>
+  </g>
+  <text class="tag-bad" x="360" y="450" text-anchor="middle">expensive</text>
+
+  <path class="edge" d="M 360 180 L 360 218" marker-end="url(#arr53)"/>
+  <path class="edge" d="M 360 300 L 360 338" marker-end="url(#arr53)"/>
+
+  <!-- vertical divider -->
+  <line class="divider" x1="700" y1="60" x2="700" y2="480"/>
+
+  <!-- Right: As a precompile -->
+  <g class="subgraph">
+    <rect x="720" y="40" width="640" height="440" rx="12"/>
+    <text class="label" x="740" y="68">As a precompile</text>
+  </g>
+
+  <g class="n-art" transform="translate(760,100)">
+    <rect width="560" height="80" rx="8"/>
+    <text class="kind" x="280" y="22" text-anchor="middle">input</text>
+    <text class="name" x="280" y="50" text-anchor="middle">Hash block</text>
+    <text class="sub" x="280" y="68" text-anchor="middle">one SHA-256 compression round</text>
+  </g>
+
+  <g class="n-chip" transform="translate(760,220)">
+    <rect width="560" height="80" rx="8"/>
+    <text class="kind" x="280" y="22" text-anchor="middle">execution</text>
+    <text class="name" x="280" y="50" text-anchor="middle">SHA-256 chip</text>
+    <text class="sub" x="280" y="68" text-anchor="middle">native opcode · single dispatch</text>
+  </g>
+
+  <g class="n-chip" transform="translate(760,340)">
+    <rect width="560" height="70" rx="8"/>
+    <text class="kind" x="280" y="22" text-anchor="middle">cost</text>
+    <text class="name" x="280" y="48" text-anchor="middle">one row in the SHA-256 chip</text>
+  </g>
+  <text class="tag-good" x="1040" y="450" text-anchor="middle">same coverage · far fewer constraints</text>
+
+  <path class="edge" d="M 1040 180 L 1040 218" marker-end="url(#arr53)"/>
+  <path class="edge" d="M 1040 300 L 1040 338" marker-end="url(#arr53)"/>
+</svg>

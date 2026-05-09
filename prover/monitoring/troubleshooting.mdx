@@ -1,0 +1,321 @@
+---
+id: troubleshooting
+sidebar_position: 4
+title: Troubleshooting
+description: A runbook for the failure patterns that cover most production incidents, with symptoms, likely causes, and the concrete check for each.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+This page is the runbook half of monitoring. Each section
+starts from a symptom that an alert or a user report would
+surface, walks through the most likely causes in roughly the
+order to suspect them, and ends on the concrete check that
+either confirms or rules each cause out. The handful of
+patterns covered here account for the large majority of
+production incidents you will actually see.
+
+</Summary>
+
+## How to use this page
+
+The sections below are written as a flat list of failure
+modes, not a decision tree. In a real incident, the symptom
+is usually obvious (the coordinator will not start, jobs are
+hanging, one worker is consistently slow), and the right
+section to read is the one whose heading matches what you
+are seeing. Read the section top to bottom: each one walks
+through the likely causes in roughly the order they tend to
+occur in production, with the cheapest checks first.
+
+You do not need to memorise the runbook. It is here so that
+when the cluster is unhappy at three in the morning, you can
+grep this page for the symptom and find the next thing to
+check, without having to reason from first principles.
+
+---
+
+## The coordinator will not start
+
+The first thing to look at is whether systemd is reporting a
+clean failure or a stuck startup. The two have different
+fixes.
+
+```zisk-bash title="bash"
+sudo systemctl status zisk-coordinator
+journalctl -u zisk-coordinator -n 50
+```
+
+The `status` output tells you whether the service is in a
+failed state or stuck in `activating`, and the journalctl
+output gives you the last fifty lines of whatever the
+coordinator wrote before it gave up.
+
+The most common pattern in those logs is `Address already in
+use`, which means another process on the host is already
+listening on one of the coordinator's ports. The fix is
+either to find and stop that other process (often a previous
+coordinator instance that did not exit cleanly, or a
+different service that bound the same port) or to change the
+coordinator's ports in `/etc/zisk/coordinator.toml`. A useful
+diagnostic for "what owns this port" on a Linux host is `ss
+-tlnp | grep 7000` (substituting whatever port is conflicting),
+which prints the PID and binary name of the listener.
+
+The second common pattern is a TOML parse error. These show
+up as a Rust style error message naming the line and column
+where the parser stopped, usually after a hand edited config
+introduced a typo. The fix is to fix the typo and restart.
+The configs that ship with the install scripts are valid by
+default, so if you have not edited them, this is unlikely.
+
+The third pattern is `Permission denied` reading the config
+file. This happens when the config has been copied into
+place by hand (rather than by the install script) and the
+ownership has not been set correctly. The install script
+sets the config to mode 640 owned by `root:zisk-coordinator`,
+which is what the systemd unit expects. Restoring that with
+
+```zisk-bash title="bash"
+sudo chown root:zisk-coordinator /etc/zisk/coordinator.toml
+sudo chmod 640 /etc/zisk/coordinator.toml
+```
+
+normally clears it.
+
+---
+
+## A worker keeps disconnecting
+
+The pattern here is a worker that registers successfully,
+runs for a while, drops, reconnects, and repeats. The
+coordinator's metrics show the worker count flapping; the
+worker's own logs show repeated reconnect attempts.
+
+The first place to look is the worker's own warn level
+output:
+
+```zisk-bash title="bash"
+journalctl -u zisk-worker -p warn -f
+```
+
+The most common cause is plain network reachability. The
+worker is configured with the coordinator's address, that
+address is correct from a configuration point of view, but
+some piece of the network in between (a firewall, a
+security group, a routing rule) is dropping packets on the
+worker port. The cheapest check is to confirm the worker can
+actually reach the coordinator's worker port from the worker
+host:
+
+```zisk-bash title="bash"
+curl -v http://<coordinator-host>:50051
+```
+
+If `curl` cannot connect, neither can the worker, and the
+fix is to open whatever firewall rule is in the way. If
+`curl` connects but the worker still flaps, the network is
+not the cause.
+
+The second cause to suspect is the heartbeat timeout being
+set too low for the latency between the worker and the
+coordinator. The default is thirty seconds, which is
+comfortably above the round trip latency of any reasonable
+production network. If you have set it lower, or if your
+network has unusually high latency between zones, the
+heartbeat can time out even though both sides are healthy.
+The fix is to raise `[connection].heartbeat_timeout_seconds`
+on the worker to a value comfortably above your typical
+round trip time.
+
+The third cause is the coordinator being overloaded. A
+heavily loaded coordinator can take long enough to respond
+to a heartbeat that the heartbeat times out from the worker's
+side. The check here is to look at the coordinator's CPU
+usage and its in flight job count when the disconnects
+happen. If the disconnects correlate with high coordinator
+load, the cluster is over its serving capacity, and the fix
+is on the capacity planning side rather than the network.
+
+---
+
+## Jobs hang forever
+
+A job that submits successfully but never returns is one of
+the more confusing failure modes, because there are at least
+three different things it can mean. Diagnose them in order
+of likelihood.
+
+The most common cause is, surprisingly, a host side timeout.
+The host application's `request_timeout` is set lower than
+the proof actually takes, the host gives up on the call,
+but the cluster carries on proving and successfully
+completes the job. The host treats this as a hang because it
+saw an error; the cluster treats it as a successful
+completion that nobody collected. The check is to look at
+the coordinator's logs for the job ID and confirm whether
+the proof actually completed. If it did, the fix is to raise
+`request_timeout` on the host (see [Testing your
+deployment](../deploying/testing#sizing-your-timeouts))
+and resubmit.
+
+The second most common cause is a worker that silently OOM
+died. When the kernel OOM killer terminates a worker, the
+worker disappears without writing any "I crashed" line to
+its own log; the only evidence is in the kernel ring buffer.
+Check `dmesg | tail` and `journalctl -k | grep oom` on each
+worker host that was assigned segments of the hung job. If
+any of them show an OOM kill timestamp matching the hang,
+that is your cause, and the fix is either to reduce the
+worker's advertised `compute_units` so the coordinator gives
+it fewer concurrent segments, or to move it to a host with
+more RAM.
+
+The third cause, less common but worth knowing, is the
+Assembly emulator being starved across the whole cluster.
+The Assembly emulator pre allocates large shared memory
+regions, and on a tightly provisioned host it can exhaust
+RAM faster than its lighter alternative, the Rust emulator.
+If every worker is at maximum RAM and proofs are still
+hanging, the fix is to switch the tightest workers to the
+Rust emulator (the `-l` flag on `cargo-zisk`) until you can
+provision more memory.
+
+---
+
+## Memory keeps growing on a worker
+
+The Assembly emulator's memory behaviour is the source of
+several false alarms a year, so it is worth saying clearly:
+the Assembly emulator pre allocates large shared regions on
+startup, which makes the worker's reported memory usage
+look enormous in `top`'s VIRT column, and which makes RES
+climb during normal proving as those regions get touched.
+This is expected behaviour. It is not a leak.
+
+The diagnostic is to read the right column. Look at RES (the
+resident set, what is actually backed by physical RAM) rather
+than VIRT (which counts the entire reserved address space).
+If RES sits at a steady multi gigabyte value during proving
+and returns to a baseline between jobs, the worker is
+behaving as designed. If RES grows monotonically across many
+jobs without any return to baseline, that is genuinely
+worth investigating, and the right artifact to capture is a
+heap profile attached to a bug report.
+
+---
+
+## One worker is much slower than the others
+
+Because the slowest segment determines the total proof time,
+a single slow worker drags every job's wall clock latency
+down to its level. The metric signal is per worker p95 job
+duration sitting consistently above the cluster average, even
+under similar load.
+
+The likely causes fall into three buckets. The first is host
+contention: another process on the same machine is competing
+for CPU or memory bandwidth, and the worker is getting
+starved as a result. The check is to look at the host's load
+average and per core CPU utilisation during a slow proof. If
+load average is significantly above the core count, or if a
+non worker process is occupying meaningful CPU, that is your
+cause.
+
+The second bucket is disk performance. Segment proving
+touches disk for both swap pressure and trace
+materialisation, and a worker on a slow disk (or a disk
+under unrelated IO pressure from another tenant) will run
+proving at the disk's speed rather than the CPU's. The
+check is to look at the worker host's disk IOPS and queue
+depth. A consistently high queue depth is the signal.
+
+The third bucket is just hardware variance. If the worker is
+on a meaningfully slower machine than its peers (different
+CPU generation, smaller cache, slower memory), it will
+genuinely take longer to prove the same segment, and there
+is no software fix. The right operational response is to
+reduce the slow worker's advertised `compute_units` so the
+coordinator hands it less work proportionally, which prevents
+it from dragging the cluster's average down.
+
+---
+
+## A job fails with a verification error
+
+A proof that produces successfully but then fails to verify
+is a serious signal and should be treated with more
+suspicion than the other failure modes on this page. A genuine
+verification failure on otherwise matched components is a
+bug worth filing.
+
+That said, two common causes are not bugs and should be
+ruled out first.
+
+The first is a mismatched ELF. The host's `PROGRAM` was
+compiled from a different ELF than the one `setup` ran on.
+This happens when the guest is rebuilt without re running
+`setup`, or when a build pipeline mixes artifacts from
+different commits. The fix is to re run `setup` on the
+correct ELF and re prove.
+
+The second is a version skew between the host and the
+cluster. The proving stack and the verifier are versioned
+together, and verifying a proof produced by version X with
+verifier version Y is not generally guaranteed to work.
+Confirm with `zisk-coordinator --version` on the cluster
+side and your host's `zisk-sdk` dependency version on the
+host side that they are aligned.
+
+If neither cause explains it, capture the proof file, the
+input that produced it, and the ELF that was set up, and
+file an issue with all three artifacts attached. A
+verification failure across matched components is a real
+bug and the maintainers will need those artifacts to
+reproduce it.
+
+---
+
+## Summary
+
+A handful of failure patterns cover the large majority of
+production incidents on a ZisK cluster: a coordinator that
+will not start (port collision, TOML typo, config
+permissions), a worker that keeps disconnecting (network
+reachability, heartbeat timeout, coordinator overload), jobs
+that hang forever (host side timeout, worker OOM, emulator
+starvation), memory that looks like a leak but is not
+(Assembly emulator's pre allocated regions), one worker
+that is much slower than the others (host contention, disk
+IO, hardware variance), and verification errors (ELF
+mismatch, version skew, or a real bug). Each section above
+walks through the symptom, the likely causes in order, and
+the concrete check for each.
+
+---
+
+## Where to go next
+
+You have reached the end of the operator track. From here,
+the documentation that builds on top of this section
+includes the developer guides for guest programs and the
+reference material for the SDK and CLI.
+
+The next direction depends on what you are trying to do. To
+develop new guests, the [Writing
+programs](/developer/writing-programs/first-guest) section
+covers the Rust side end to end. To tune the cost of
+existing guests, the [Profiling](/references/zisk-os/profiling)
+reference and the page on [hint accelerated witness
+generation](/developer/proving-programs/io-advanced) are the
+two main levers available. To look up an API, the
+[zisk-sdk references](/references/zisk-sdk) and the
+[cargo-zisk references](/references/cargo-zisk) cover the
+full surface.
+
+You have gone from "I have never run a ZisK prover" to a
+running cluster with monitoring, alerting, scaling, restart,
+and incident response procedures you can rely on. That is
+the entire operator path.

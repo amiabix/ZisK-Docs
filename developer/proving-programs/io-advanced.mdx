@@ -1,0 +1,341 @@
+---
+id: io-advanced
+sidebar_position: 5
+title: Optimizing via inputs
+description: Stream inputs into the guest at runtime and pass hints alongside the proof for non-deterministic data.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Stream inputs into the guest as data becomes available, or pass hints alongside the proof so the prover skips recomputing expensive precompiles.
+
+</Summary>
+
+## Input streaming
+
+`ZiskStdin` works when the entire input is known up front and fits in memory or on disk. The host buffers everything, then hands the buffer to the prover.
+
+For inputs produced incrementally at runtime, too large to materialize at once, or fed by a separate process, swap `ZiskStdin` for `ZiskStream` and push data to the guest as it becomes available.
+
+`ZiskStream` mirrors the `ZiskStdin` write API but is backed by a live transport instead of an in-memory buffer. Both types implement `Into<InputSource>`, so the prover accepts either one in the same `client.prove(...)` call.
+
+The byte contract with the guest does not change. The host still writes values in the order the guest reads them; only *when* the bytes arrive does.
+
+### Choosing a transport
+
+`ZiskStream` is created through one of three transport constructors, each suited to a different deployment:
+
+| Constructor | Transport | Use when |
+|---|---|---|
+| `ZiskStream::unix()` | Unix domain socket at an auto-assigned `/tmp/` path | Host and prover are on the same machine and the socket location does not matter. |
+| `ZiskStream::unix_at(path)` | Unix domain socket at an explicit path | Same as above, but the path needs to be controlled (sandboxes, multi-tenant hosts). |
+| `ZiskStream::quic("quic://127.0.0.1:0")` | QUIC over UDP | Host and prover run on different machines. Pass `:0` to let the OS assign a free port. |
+| `ZiskStream::grpc()` | gRPC push (frames pushed to a coordinator via `PushJobInput`) | Cluster and remote-prover deployments where the coordinator drives the connection. |
+
+The returned stream knows its own transport URI (`stream.uri()`) and is cheaply cloneable. Internally it is `Arc`-wrapped, so a clone can go to a producer task while the original stays on the main thread.
+
+### Writing and flushing
+
+The write surface is intentionally identical to `ZiskStdin`:
+
+| Method | Description |
+|---|---|
+| `write(&T)` | Bincode-serializes a typed value and buffers the resulting frame. |
+| `write_slice(&[u8])` | Buffers raw bytes with the standard length-header framing. |
+| `write_bytes(&[u8])` | Buffers raw bytes with no framing. Use only when the receiving side owns a lower-level protocol that already knows the byte count; standard guest reads expect framed records from `write` or `write_slice`. |
+| `flush()` | Sends every buffered frame over the transport. Blocks until the prover is connected. |
+| `reset()` | Discards buffered frames that have not been sent yet. Frames already flushed cannot be taken back. |
+
+Writes accumulate in a local frame buffer. Nothing leaves the host until `flush()` runs. The first `flush()` opens the transport and waits for the prover to connect; subsequent flushes only pay the send cost.
+
+### Lifecycle
+
+Each job moves a stream through three phases:
+
+1. **Buffering.** `write` and `write_slice` calls accumulate frames locally. Nothing crosses the transport.
+2. **Live.** `flush()` opens the transport (if not already open), waits for the prover to connect, and sends every buffered frame in order. Further writes are sent on the next `flush()`.
+3. **Closed.** `finish()` tears the transport down. The SDK calls this automatically when the `JobHandle` resolves, so most callers never invoke it directly.
+
+Streams are reusable across jobs: the next `flush()` opens a fresh transport.
+
+---
+
+## Working on a real example
+
+Build a workload that actually benefits from streaming: a **signed-transaction batch validator**.
+
+The guest receives a sequence of EVM-style signed transactions, recovers each sender from its ECDSA signature, and folds the recovered keys into a Keccak-256 accumulator that becomes the public commitment of the batch.
+
+This is the same shape as the inner loop of an Ethereum state transition without the full state machinery.
+
+Real-world batches arrive incrementally from a mempool, an RPC subscription, or a sequencer queue. The host knows the batch size up front but not the individual transactions. That is exactly the case `ZiskStream` is built for.
+
+The same project appears again in the next section to demonstrate hints, since the precompiles the guest leans on (`secp256k1_ecdsa_recover` and `keccak256`) are both hint-acceleratable.
+
+### Set up the project
+
+Scaffold a fresh project with `cargo-zisk`:
+
+```zisk-bash title="bash"
+cargo-zisk new tx-batch
+cd tx-batch
+```
+
+The project has the standard layout: a `common/` crate for shared types, a `guest/` crate for the program executed inside the zkVM, and a `host/` crate for the driving code. The next three subsections fill each one in.
+
+### Define the shared transaction type
+
+Both host and guest need to agree on the on-the-wire shape of a signed transaction. Add `serde` to the common crate:
+
+```toml title="common/Cargo.toml"
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+```
+
+Then declare a minimal `SignedTx` in `common/src/lib.rs`. The signature components are kept as `[u64; 4]` little-endian limbs so the guest can hand them straight to the secp256k1 precompile without any reformatting:
+
+```rust title="common/src/lib.rs"
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct SignedTx {
+    pub msg_hash: [u64; 4],
+    pub sig_r: [u64; 4],
+    pub sig_s: [u64; 4],
+    pub recid: u8,
+}
+```
+
+### Write the guest
+
+Add `zisklib` and the `common` crate to the guest dependencies. The former exposes the precompile entry points; the latter, the shared type:
+
+```toml title="guest/Cargo.toml"
+[dependencies]
+common = { path = "../common" }
+ziskos = { workspace = true }
+zisklib = { workspace = true }
+```
+
+Now open `guest/src/main.rs`. The guest reads the batch size, then loops once per transaction.
+
+It recovers the sender's public key with the secp256k1 precompile, folds it into a running Keccak digest, and commits the final accumulator as the batch root.
+
+```rust title="guest/src/main.rs"
+#![no_main]
+ziskos::entrypoint!(main);
+
+use common::SignedTx;
+use ziskos::io;
+use zisklib::{keccak256, secp256k1_ecdsa_recover};
+
+fn main() {
+
+    // Reading the batch size up front
+    let count = io::read::<u64>();
+
+    // Executing program logic
+    let mut acc = [0u8; 32];
+    for _ in 0..count {
+
+        // Reading the next signed transaction
+        let tx = io::read::<SignedTx>();
+
+        // Recovering the signer with the secp256k1 precompile
+        let pk = secp256k1_ecdsa_recover(
+            &tx.sig_r, &tx.sig_s, &tx.msg_hash, tx.recid,
+        ).expect("invalid signature");
+
+        // Folding (acc || pk_bytes) into the rolling digest with the keccak precompile
+        let mut buf = [0u8; 32 + 64];
+        buf[..32].copy_from_slice(&acc);
+        for (i, limb) in pk.iter().enumerate() {
+            buf[32 + i * 8..32 + (i + 1) * 8].copy_from_slice(&limb.to_le_bytes());
+        }
+        acc = keccak256(&buf);
+
+    }
+
+    // Commiting the batch root as a public output
+    io::commit(&acc);
+
+}
+```
+
+The guest does not know whether its input came from a buffered `Stdin` or a live `Stream`.
+
+Both arrive on the same `io::read*` calls, so the guest stays unchanged across both variants in this guide.
+
+### Stream the input from the host
+
+Open `host/src/main.rs` and wire a Unix-socket stream in place of a buffered `ZiskStdin`.
+
+The host knows the batch size up front, so it writes the count into the stream immediately, kicks off the prove call, and then drains incoming transactions from a mempool-like producer as they arrive:
+
+```rust title="host/src/main.rs"
+use common::SignedTx;
+use zisk_sdk::{GuestProgram, ProverClient, ZiskStream, load_program};
+
+static PROGRAM: GuestProgram = load_program!("tx-batch-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Setting up the client and program
+    let client = ProverClient::embedded().build()?;
+    client.setup(&PROGRAM).run()?.await?;
+
+    // Opening a stream and announcing the batch size up front
+    let stream = ZiskStream::unix();
+    let total = mempool::expected_batch_size();
+    stream.write(&total);
+
+    // Submitting the proof against the stream; the prover will
+    // block on the next read until each transaction arrives
+    let job = client.prove(&PROGRAM, stream.clone()).run()?;
+
+    // Pushing transactions in as the mempool produces them
+    for tx in mempool::drain(total as usize) {
+        stream.write::<SignedTx>(&tx);
+        stream.flush()?;
+    }
+
+    let proof = job.await?;
+    let root: [u8; 32] = proof.get_public_values()?;
+    println!("batch root => 0x{}", hex::encode(root));
+    Ok(())
+
+}
+```
+
+Build and run:
+
+```zisk-bash title="bash"
+cargo-zisk build --release
+cargo run --release
+```
+
+The proof is produced incrementally as transactions arrive, so the end-to-end latency tracks the slower of the prover and the mempool rather than the sum of both.
+
+---
+
+## Hints
+
+Hints are an auxiliary input channel. Where `Stdin` and `Stream` deliver the values the guest reads with `io::read*`, hints carry preprocessed data the prover consumes when generating witnesses for precompile operations.
+
+Supported precompile families include SHA-256, Keccak-256, secp256k1, BN254 and BLS12-381 pairings, and modular exponentiation.
+
+Supplying hints lets the prover skip recomputing those primitives from scratch, which is the most expensive part of witness generation for programs that rely on them.
+
+Hints are optional. A program proves correctly without them; they only change *how fast* the proof is produced. Programs that do not use precompiles or that use them sparingly get little or nothing from enabling hints.
+
+### Enabling hints at setup
+
+Hints must be wired in at setup time, not just at prove time. Two things must line up:
+
+1. The client must be built with the **Assembly** executor. The default emulator does not support hint-accelerated witness generation.
+2. The setup must be run with `.with_hints()` so the resulting setup artifacts are compatible with hinted proofs.
+
+```rust title="host/src/main.rs"
+let client = ProverClient::embedded()
+    .assembly()
+    .build()?;
+
+client.setup(&PROGRAM).with_hints().run()?.await?;
+```
+
+Setup artifacts produced without `.with_hints()` cannot be used to prove with hints later, and vice versa.
+
+### Creating a `ZiskHints`
+
+`ZiskHints` is the in-memory carrier for a hints payload. It exposes four constructors depending on where the bytes come from:
+
+| Constructor | Source | Use when |
+|---|---|---|
+| `ZiskHints::new()` | Empty buffer | You'll fill it incrementally before proving (rare). |
+| `ZiskHints::memory(&bytes)` | Raw `&[u8]` | The hints already exist as bytes (e.g. produced by an offline tool). |
+| `ZiskHints::from(&value)` | Any `T: Serialize` | A typed Rust value bincode-serialized into a hints buffer. |
+| `ZiskHints::from_file(path)` | A file on disk | Hints were precomputed and written out earlier. Errors if the file does not exist. |
+
+### Streaming hints
+
+Hints can also be streamed instead of buffered. `HintsSource` accepts either a `ZiskHints` (in-memory or file-backed) or a `ZiskStream` (live transport).
+
+The same `ZiskStream` machinery described in [Input streaming](#input-streaming), Unix socket, QUIC, or gRPC, is reused for hints.
+
+This is useful when hints are produced by a separate process running alongside the prover and you do not want to materialize the full payload before proving starts.
+
+### Passing hints to `prove`
+
+The same `tx-batch` project is reused; only the host changes.
+
+The guest does not need to know about hints. Both precompiles it calls (`secp256k1_ecdsa_recover` and `keccak256`) are the same calls that benefit from hint-accelerated witness generation under the hood.
+
+Open `host/src/main.rs` and replace the streaming setup with a buffered `ZiskStdin`, an Assembly-executor client, a hints-enabled setup, and a `.hints(...)` attachment on the prove call:
+
+```rust title="host/src/main.rs"
+use common::SignedTx;
+use zisk_sdk::{
+    GuestProgram, ProverClient, ZiskHints, ZiskStdin, load_program,
+};
+
+static PROGRAM: GuestProgram = load_program!("tx-batch-guest");
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+
+    // Setting up the client with the Assembly executor
+    let client = ProverClient::embedded()
+        .assembly()
+        .build()?;
+
+    // Setting up the program with hints enabled
+    client.setup(&PROGRAM).with_hints().run()?.await?;
+
+    // Building the input: batch size followed by each transaction
+    let txs: Vec<SignedTx> = batch::load();
+    let mut stdin = ZiskStdin::new();
+    stdin.write(&(txs.len() as u64));
+    for tx in &txs {
+        stdin.write::<SignedTx>(tx);
+    }
+
+    // Loading the precomputed precompile hints for this batch
+    let hints = ZiskHints::from_file("hints.bin")?;
+
+    // Proving with both the standard input and the hints attached
+    let proof = client
+        .prove(&PROGRAM, stdin)
+        .hints(hints)
+        .run()?
+        .await?;
+
+    let root: [u8; 32] = proof.get_public_values()?;
+    println!("batch root => 0x{}", hex::encode(root));
+    Ok(())
+
+}
+```
+
+The hints file is produced offline by running the same batch through the SDK's hint generator. The bytes inside are precompile witness data, not anything the guest sees directly.
+
+The setup-time and prove-time choices must line up: setup artifacts produced without `.with_hints()` will not accept a hinted prove call, and artifacts produced with `.with_hints()` expect hints to be attached when proving.
+
+---
+
+## Summary
+
+`ZiskStream` lets the host feed the guest as data becomes available, over a Unix socket, QUIC, or gRPC transport. This suits inputs that are large, runtime-produced, or split across processes.
+
+Hints deliver preprocessed precompile data to the prover so witness generation for SHA-256, Keccak-256, secp256k1, and the rest of the precompile suite skips recomputation. Both channels share the same building blocks: `ZiskStream` is the streaming carrier for either inputs or hints.
+
+---
+
+## Where this picks up
+
+With advanced I/O covered, the natural next step is to take the proof itself further:
+
+- [Verifying a proof](./verify-proof): work with proofs from disk and verify them programmatically.
+- [On-chain verification](./on-chain-verification): pass the public values bytes directly to a Solidity verifier contract.

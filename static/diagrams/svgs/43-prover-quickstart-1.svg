@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1500 380" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.n-chip rect { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+.subgraph rect { fill: #F7F8FA; stroke: #D9DCE3; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph text.label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; fill: #4A4C59; font-weight: 600; }
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4A4C59; }
+    ]]></style>
+    <marker id="arr43" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker>
+  </defs>
+
+  <g class="n-chip" transform="translate(40,140)">
+    <rect width="240" height="100" rx="8"/>
+    <text class="kind" x="120" y="22" text-anchor="middle">your code</text>
+    <text class="name" x="120" y="50" text-anchor="middle">Host program</text>
+    <text class="sub" x="120" y="72" text-anchor="middle">RemoteClient</text>
+  </g>
+
+  <g class="subgraph">
+    <rect x="440" y="40" width="1020" height="300" rx="12"/>
+    <text class="label" x="460" y="68">Single-host cluster</text>
+  </g>
+  <g class="n-chip" transform="translate(500,120)">
+    <rect width="380" height="160" rx="8"/>
+    <text class="kind" x="190" y="22" text-anchor="middle">service</text>
+    <text class="name" x="190" y="56" text-anchor="middle">zisk-coordinator</text>
+    <text class="sub" x="190" y="86" text-anchor="middle">:7000 (API)</text>
+    <text class="sub" x="190" y="106" text-anchor="middle">:50051 (workers)</text>
+    <text class="sub" x="190" y="126" text-anchor="middle">:9090 (metrics)</text>
+  </g>
+  <g class="n-chip" transform="translate(1100,160)">
+    <rect width="280" height="80" rx="8"/>
+    <text class="kind" x="140" y="22" text-anchor="middle">service</text>
+    <text class="name" x="140" y="52" text-anchor="middle">zisk-worker</text>
+  </g>
+
+  <path class="edge" d="M 280 190 L 500 190" marker-end="url(#arr43)"/>
+  <text class="edge-label" x="390" y="178" text-anchor="middle">:7000</text>
+
+  <path class="edge" d="M 880 190 L 1100 190" marker-end="url(#arr43)"/>
+  <text class="edge-label" x="990" y="178" text-anchor="middle">:50051</text>
+
+  <path class="edge" d="M 1100 220 C 990 220, 990 240, 880 240" marker-end="url(#arr43)"/>
+  <text class="edge-label" x="990" y="260" text-anchor="middle">segment proofs</text>
+
+  <path class="edge" d="M 500 240 C 380 240, 320 240, 280 220" marker-end="url(#arr43)"/>
+  <text class="edge-label" x="390" y="260" text-anchor="middle">final proof</text>
+</svg>

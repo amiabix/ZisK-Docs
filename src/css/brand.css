@@ -1,0 +1,118 @@
+/* ────────────────────────────────────────────────────
+   ZisK Brand — design tokens and Docusaurus wiring.
+   ──────────────────────────────────────────────────── */
+
+:root {
+  /* ── Colors ── */
+  --zisk-victorian-peak: #007755;
+  --zisk-spring-green:   #00FF7C;
+  --zisk-soft-green:     #0ABF83;
+  --zisk-light-green:    #A4F6D0;
+  --zisk-busy-bee:       #F4FF00;
+  --zisk-midnight:       #2D2E3D;
+  --zisk-dark-blue:      #1A1A24;
+  --zisk-black:          #0C0C0C;
+  --zisk-gray-dark:      #363636;
+  --zisk-gray:           #606060;
+  --zisk-gray-light:     #8E8E8A;
+  --zisk-silver-dark:    #B8B8B4;
+  --zisk-silver:         #E7E7E3;
+  --zisk-silver-light:   #F3F3F2;
+
+  /* ── Dark UI surfaces ── */
+  --zisk-panel-bg:    #1C1D2B;  /* cards, summary box, code block title */
+  --zisk-io-bg:       #1A1B27;  /* IODiagram panel background */
+  --zisk-border-dark: #363750;  /* borders on dark surfaces */
+
+  /* ── Text on dark surfaces ── */
+  --zisk-text-light: #CBD5E1;
+  --zisk-text-muted: #9294B0;
+
+  /* ── Tag colors ── */
+  --zisk-tag-blue:   #4DA6FF;
+  --zisk-tag-purple: #A78BFA;
+
+  /* ── Alert colors ── */
+  --zisk-alert-warning-border: #B8960C;
+  --zisk-alert-warning-text:   #8a6e00;
+  --zisk-alert-danger:         #c0392b;
+
+  /* ── Gradients ── */
+  --zisk-gradient: linear-gradient(90deg, var(--zisk-busy-bee) 0%, var(--zisk-spring-green) 100%);
+
+  /* ── Typography ── */
+  --zisk-font-sans:    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --zisk-font-mono:    'IBM Plex Mono', ui-monospace, monospace;
+  --zisk-font-vs-mono: 'Cascadia Code', 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+  --zisk-font-size:         16px;
+  --zisk-font-size-sm:      0.875rem;
+  --zisk-font-size-xs:      0.75rem;
+  --zisk-line-height:       1.7;
+  --zisk-heading-weight:    700;
+  --zisk-heading-weight-h1: 800;
+  --zisk-heading-leading:   1.25;
+  --zisk-h1-size:           2.1rem;
+  --zisk-h2-size:           1.45rem;
+  --zisk-h3-size:           1.15rem;
+
+  /* ── Radius ── */
+  --zisk-radius: 0.5rem;
+
+  /* ── Shadows ── */
+  --zisk-shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+  --zisk-shadow-md: 0 8px 32px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --zisk-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+
+  /* ── Inline code ── */
+  --zisk-code-bg:    var(--zisk-silver-light);
+  --zisk-code-color: var(--zisk-dark-blue);
+
+  /* ── Docusaurus / Infima wiring ── */
+  --ifm-color-primary:          var(--zisk-victorian-peak);
+  --ifm-color-primary-dark:     #006348;
+  --ifm-color-primary-darker:   #005C42;
+  --ifm-color-primary-darkest:  #004A35;
+  --ifm-color-primary-light:    #008B63;
+  --ifm-color-primary-lighter:  #00986C;
+  --ifm-color-primary-lightest: #00AC7A;
+
+  --ifm-font-family-base:      var(--zisk-font-sans);
+  --ifm-font-family-monospace: var(--zisk-font-mono);
+  --ifm-font-size-base:        var(--zisk-font-size);
+  --ifm-line-height-base:      var(--zisk-line-height);
+  --ifm-heading-font-weight:   var(--zisk-heading-weight);
+  --ifm-heading-line-height:   var(--zisk-heading-leading);
+  --ifm-font-weight-semibold:  600;
+
+  --ifm-navbar-background-color:        var(--zisk-midnight);
+  --ifm-navbar-link-color:              rgba(255, 255, 255, 0.72);
+  --ifm-navbar-link-hover-color:        #ffffff;
+  --ifm-navbar-height:                  62px;
+  --ifm-navbar-padding-vertical:        0;
+  --ifm-navbar-padding-horizontal:      1.25rem;
+  --ifm-navbar-item-padding-horizontal: 0.875rem;
+  --ifm-navbar-shadow:                  none;
+
+  --ifm-sidebar-width:                276px;
+  --ifm-menu-color:                   var(--ifm-color-content-secondary);
+  --ifm-menu-color-active:            var(--ifm-color-primary);
+  --ifm-menu-color-background-active: color-mix(in srgb, var(--zisk-victorian-peak) 8%, transparent);
+  --ifm-menu-link-padding-horizontal: 12px;
+  --ifm-menu-link-padding-vertical:   7px;
+
+  --ifm-code-font-size:                  88%;
+  --ifm-code-border-radius:              5px;
+  --ifm-code-padding-vertical:           0.15em;
+  --ifm-code-padding-horizontal:         0.4em;
+  --docusaurus-highlighted-code-line-bg: color-mix(in srgb, var(--zisk-victorian-peak) 8%, transparent);
+
+  --ifm-global-radius:      8px;
+  --ifm-hr-border-color:    var(--ifm-color-emphasis-200);
+  --ifm-table-border-color: var(--ifm-color-emphasis-200);
+
+  --ifm-footer-background-color: var(--zisk-dark-blue);
+  --ifm-footer-color:            rgba(255, 255, 255, 0.55);
+  --ifm-footer-link-color:       rgba(255, 255, 255, 0.55);
+  --ifm-footer-link-hover-color: #ffffff;
+  --ifm-footer-padding-vertical: 3rem;
+}

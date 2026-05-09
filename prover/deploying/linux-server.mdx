@@ -1,0 +1,435 @@
+---
+id: linux-server
+sidebar_position: 1
+title: Deploy in Linux server
+description: Production deployment on bare Linux hosts with dedicated users, hardened systemd units, and journald logs.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+This page takes the two binaries you built in the
+[Quickstart](../getting-started/quickstart) and deploys them
+onto real Linux hosts the way most production proving
+environments run them: bare processes managed by systemd,
+hardened against host compromise, with logs flowing into
+journald. This is the canonical production path for a ZisK
+cluster.
+
+</Summary>
+
+## Why systemd over Docker for production
+
+Both deployment paths run the same two binaries. The
+question is mostly which operations platform you are
+already invested in. There are four practical reasons most
+production deployments end up on systemd rather than on
+Docker, and they are worth understanding before you commit
+to either path.
+
+The first reason is that **there is no container runtime in
+the hot path**. Containers are cheap, but on big proving
+boxes the few percent of overhead from cgroups and the
+network namespace adds up across hours of proving. A
+systemd managed bare process gets all of the host's
+resources without any indirection, which on hardware that
+costs real money per hour matters.
+
+The second reason is **journald aggregation that is already
+there**. Most production Linux fleets already have logs
+flowing from journald to whatever aggregation system they
+use (Loki, Splunk, ELK, fluent-bit, or something else). A
+new systemd service joins that pipeline for free, with no
+extra collector or shipper to install.
+
+The third reason is **standard ops tooling**. Every operator
+already knows `systemctl status`, `systemctl restart`,
+`journalctl -u`, `systemd-analyze`, and `coredumpctl`.
+Container runtimes have their own equivalents for each of
+these, and the lookups are not quite the same. Choosing the
+tooling your team already knows reduces the cognitive load
+during incidents.
+
+The fourth reason is **hardened defaults out of the box**.
+The unit files installed by the script set
+`ProtectSystem=strict`, `ProtectHome=true`,
+`NoNewPrivileges=true`, and `PrivateTmp=true`, which
+sandboxes the prover against most kinds of host compromise.
+Achieving the same hardening on a container deployment is
+possible but requires extra configuration.
+
+The Docker path is still fine for production if you are
+standing on Kubernetes or already have a strong container
+story. The choice is mostly about which ops platform you
+are already investing in, not about technical superiority
+either way.
+
+---
+
+## Prerequisites
+
+Before running anything, you need a few things in place.
+You need one Linux host with `sudo` for the coordinator,
+and one or more Linux hosts with `sudo` for the workers.
+Each worker host needs to meet the [hardware
+requirements](/intro/deep/limits): at least sixty four
+gigabytes of RAM for the Assembly emulator, or at least
+thirty two gigabytes for the lighter Rust emulator. You
+need the ZisK source repo cloned on each host (the install
+scripts build the binaries from source by default; passing
+`--binary <path>` to either install script skips the build
+step in favour of a pre built binary). You need network
+connectivity from every worker host to the coordinator
+host on the worker facing port (50051 by default).
+
+The first command on every host is the clone:
+
+```zisk-bash title="bash"
+git clone https://github.com/0xPolygonHermez/zisk.git
+cd zisk
+```
+
+---
+
+## Install the coordinator
+
+On the host that will run the coordinator, run the install
+script:
+
+```zisk-bash title="bash"
+sudo distributed/deploy/scripts/coordinator/install.sh
+```
+
+The script does everything you would otherwise do by hand,
+in a single deterministic pass. The table below summarises
+the actions it performs.
+
+| Action | Detail |
+| --- | --- |
+| Creates user | `zisk-coordinator` (system user, no shell, no home directory). |
+| Installs binary | `/usr/local/bin/zisk-coordinator`, mode `755`. |
+| Installs config | `/etc/zisk/coordinator.toml`, mode `640`, owned by `root:zisk-coordinator`. |
+| Creates working dir | `/var/lib/zisk`, owned by `zisk-coordinator`. |
+| Installs unit | `/etc/systemd/system/zisk-coordinator.service` with hardening directives. |
+| Enables and starts | `systemctl daemon-reload && systemctl enable --now zisk-coordinator`. |
+
+Once the script finishes, verify the service is running:
+
+```zisk-bash title="bash"
+sudo systemctl status zisk-coordinator
+journalctl -u zisk-coordinator -f
+```
+
+You should see structured logs and the same three ports
+the [Quickstart](../getting-started/quickstart#start-the-coordinator)
+used: 7000 (the API), 50051 (the worker port), and 9090
+(the metrics endpoint).
+
+:::tip
+The install script is a convenience. Some operators
+prefer to copy each step into Ansible, Chef, or Nix rather
+than running the script directly. The script does, in
+order, the following: it creates the system user, builds
+(or copies) the binary, installs the binary under
+`/usr/local/bin`, copies the example config to
+`/etc/zisk/coordinator.toml`, creates `/var/lib/zisk`,
+drops the unit file, and runs `systemctl enable --now`.
+If you are rolling your own provisioning, do exactly
+those steps and skip the script entirely.
+:::
+
+### Open the firewall
+
+The three coordinator ports have three different trust
+levels (described on the [Prover Architecture
+page](../getting-started/architecture#ports-and-traffic-flows)),
+and your firewall rules should reflect that asymmetry. The
+table below names the audience for each port. The deeper
+principle is that giving every audience the same access
+level wastes the network policy lever entirely.
+
+| Port | Open to |
+| --- | --- |
+| 7000 | Application hosts (the boxes that submit jobs). TLS terminate at a load balancer if you are crossing network boundaries. |
+| 50051 | Worker hosts only. mTLS this link if workers and coordinator live on different trust zones. |
+| 9090 | Prometheus and monitoring hosts only. Read only and unauthenticated by default, so it must never be exposed externally. |
+
+---
+
+## Install workers
+
+On every machine that will run a worker, run the worker
+install script. The pattern is the same as the coordinator
+install: a single command, after which a systemd service
+is enabled and started:
+
+```zisk-bash title="bash"
+sudo distributed/deploy/scripts/worker/install.sh
+```
+
+The actions it performs mirror the coordinator install
+script's actions, but for the worker user and worker unit
+file.
+
+| Action | Detail |
+| --- | --- |
+| Creates user | `zisk-worker` (system user). |
+| Installs binary | `/usr/local/bin/zisk-worker`, mode `755`. |
+| Installs config | `/etc/zisk/worker.toml`, mode `640`, owned by `root:zisk-worker`. |
+| Creates working dirs | `/var/lib/zisk-worker/` with `inputs/` and `cache/` subdirs. Logs flow to journald on Linux (no on-disk log directory created); the on-disk `/var/log/zisk-worker/` path only exists on the macOS launchd path. |
+| Installs unit | `/etc/systemd/system/zisk-worker.service`, hardened, `Restart=on-failure`, `RestartSec=5`. |
+| Enables and starts | `systemctl daemon-reload && systemctl enable --now zisk-worker`. |
+
+:::info
+The `Restart=on-failure` line is worth noting. If the
+worker crashes (most often from OOM on a too large
+segment), systemd will restart it after five seconds. The
+coordinator notices the disconnect, drops the worker from
+its routing table, and re registers it on reconnect. In
+practice you will see jobs continue without manual
+intervention. The visible signal is a transient bump in
+`coordinator_jobs_total{outcome="failed"}` for jobs the
+restarting worker dropped, plus the gap in coordinator
+logs covering the restart window. The current coordinator
+build does not expose a `workers_registered` metric.
+:::
+
+### Point the worker at the coordinator
+
+Before the worker can do anything useful, it needs to know
+where the coordinator is. Edit `/etc/zisk/worker.toml`:
+
+```toml title="/etc/zisk/worker.toml"
+[coordinator]
+url = "http://<coordinator-host>:50051"
+```
+
+Then restart the service to pick up the change:
+
+```zisk-bash title="bash"
+sudo systemctl restart zisk-worker
+journalctl -u zisk-worker -f
+```
+
+If the coordinator is reachable, the registration logs
+appear on both sides immediately. If not, the worker
+retries every `reconnect_interval_seconds` (default 5)
+until it gets through. No manual recovery is needed.
+
+This auto reconnect behaviour is also why the order in
+which you install hosts does not matter. Workers can
+come up before the coordinator exists; they will simply
+sit in a reconnect loop, logging warnings, until the
+coordinator finally appears and answers.
+
+### Set the compute capacity
+
+The worker's `[worker].compute_capacity.compute_units`
+setting controls how much work the coordinator hands it.
+A worker advertising twenty units gets twice as much work
+as a worker advertising ten. The number is your declaration
+to the coordinator about how much this worker can absorb at
+once.
+
+```toml title="/etc/zisk/worker.toml"
+[worker]
+compute_capacity.compute_units = 32   # this host has 32 proving-friendly cores
+```
+
+After editing, restart the worker service:
+
+```zisk-bash title="bash"
+sudo systemctl restart zisk-worker
+```
+
+The right number depends on the actual hardware. The table
+below is the rule of thumb most production deployments use
+as a starting point.
+
+| Hardware | Compute units to advertise |
+| --- | --- |
+| CPU only host | One unit per physical CPU core available for proving. Reserve two cores for the operating system, networking, and the worker's own overhead. |
+| GPU only host (when GPU proving is enabled) | One unit per GPU stream. |
+| Mixed CPU and GPU host | The sum of the CPU unit count and the GPU stream count. |
+
+If you over advertise, jobs queue up on the worker and
+memory usage spikes (multiple segments held in RAM at
+once). If you under advertise, the worker is idle while
+peer workers are busy. The right baseline is "one unit per
+real CPU core available for proving", with a couple of
+cores left for the operating system, networking, and the
+worker's own overhead.
+
+---
+
+## Add more workers
+
+Run the install script on as many hosts as you want.
+They all register against the same coordinator and start
+receiving work proportionally to their advertised
+capacity. The diagram below shows a three worker cluster
+with heterogeneous capacities, which is the typical
+production shape.
+
+![Diagram: Coordinator host · zisk-coordinator :7000  :50051  :9090 · Worker host A (32 units) · zisk-worker · Worker host B (32 units)](/diagrams/svgs/47-prover-linux-server-1.svg)
+
+Adding a worker host is a four step recipe: clone the
+repo, run the install script, edit `/etc/zisk/worker.toml`
+to point at the coordinator, and `systemctl restart`.
+Removing a worker is just `systemctl stop zisk-worker`,
+which drains in flight work before exiting cleanly.
+
+The set of workers does not have to be uniform. They can
+be different machines with different hardware and different
+`compute_units` values. The coordinator treats them
+uniformly and divides work in proportion to advertised
+capacity. There is no concept of "this worker is special";
+if you want to pin certain jobs to certain workers, that is
+not a feature the cluster currently has.
+
+---
+
+## Tweak the configs
+
+The two annotated example configs that ship with the repo
+document every key. They are the right reference when you
+need to look up a less common setting:
+
+```
+distributed/crates/coordinator-server/config/coordinator.example.toml
+distributed/crates/worker/config/prod.toml
+```
+
+The keys you will most often touch on the **coordinator**
+are the listening addresses, the metrics settings, and the
+logging settings:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `[server].host` | `0.0.0.0` | Address the client facing API listens on. |
+| `[server].port` | `7000` | Client facing gRPC API port. |
+| `[server].shutdown_timeout_seconds` | `30` | Drain time after a shutdown signal. |
+| `[coordinator].port` | `50051` | Worker facing gRPC port. |
+| `[metrics].enabled` | `true` | Turn `/metrics` on or off. |
+| `[metrics].port` | `9090` | Prometheus scrape port. |
+| `[logging].level` | `info` | Log level. `RUST_LOG` overrides. |
+| `[logging].format` | `pretty` | Use `json` in production for log aggregation. |
+
+The keys you will most often touch on a **worker** are the
+worker identity, the advertised capacity, and the
+coordinator address:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `[worker].worker_id` | random UUID per start | Stable identifier for logs and metrics. |
+| `[worker].compute_capacity.compute_units` | `10` | Match to actual hardware. |
+| `[coordinator].url` | `http://127.0.0.1:50051` | The coordinator's worker facing address. |
+| `[connection].reconnect_interval_seconds` | `5` | Backoff between reconnect attempts. |
+| `[connection].heartbeat_timeout_seconds` | `30` | Connection considered dead if no heartbeat in this many seconds. |
+
+After every config edit, restart the affected service so
+that it reloads:
+
+```zisk-bash title="bash"
+sudo systemctl restart zisk-coordinator   # or zisk-worker
+```
+
+:::tip
+A small rule that catches a lot of incidents: edit configs
+in infrastructure as code, not on the host. If you `vim`
+`/etc/zisk/worker.toml` directly, the next host rebuild
+silently overwrites your change. Keep the configs in your
+config management system (Ansible, Puppet, whatever you
+use) and let it be the source of truth.
+:::
+
+### Override at the command line
+
+Both binaries also accept the most common keys as command
+line flags. This is useful for one off testing, where
+editing a TOML file would be more friction than you need:
+
+```zisk-bash title="bash"
+zisk-coordinator --api-port 8000 --cluster-port 60000 --metrics-port 9100 --log-level debug
+zisk-worker --coordinator-url http://prod-coord:50051 --compute-capacity 32
+```
+
+The override chain is `defaults → file → env vars → CLI
+flags`, with later sources winning. In production the
+environment variable layer is the most useful one. You
+can keep the same `worker.toml` on every host and let
+environment variables (set by the unit file's
+`Environment=` directive or by a drop in) carry the per
+host differences. The file on disk stays identical across
+the fleet, which makes config drift much easier to detect.
+
+---
+
+## Logs you will actually look at
+
+Day to day, the journald commands you will use most often
+are the four below. They cover live tailing, error
+filtering, recent history, and post boot inspection, in
+that order:
+
+```zisk-bash title="bash"
+# Live tail of the coordinator
+journalctl -u zisk-coordinator -f
+
+# Errors only on the coordinator
+journalctl -u zisk-coordinator -p err -f
+
+# Last 200 lines on a worker, with timestamps
+journalctl -u zisk-worker -n 200 -o short-iso
+
+# Everything since the last boot
+journalctl -u zisk-coordinator -b
+```
+
+The [Logs](../monitoring/logs) page in the monitoring
+section goes deeper into log filtering, structured logging
+in production, and tracing a single job through coordinator
+and worker logs.
+
+---
+
+## Troubleshooting
+
+The deployment patterns below cover the issues most
+operators run into during the first install. Each row
+pairs a symptom with the most likely cause and the fix.
+
+| Symptom | Likely cause and fix |
+| --- | --- |
+| `install.sh` fails to build the binary. | Old Rust toolchain or missing dependencies. Install the latest stable Rust and rerun, or pre build the binary and pass `--binary <path>` to skip building. |
+| Coordinator service refuses to start. | `journalctl -u zisk-coordinator` shows binding errors or config parse errors. Most often a port collision or a typo in `/etc/zisk/coordinator.toml`. |
+| Worker registers but no work comes. | The worker is running but no client is submitting jobs. Confirm an SDK client is connecting to `http://<coordinator-host>:7000`. |
+| Worker logs `connection refused`. | Network reachability. Confirm the coordinator host's port 50051 is open from the worker host. |
+| Worker keeps disconnecting. | Heartbeat timing out. Increase `[connection].heartbeat_timeout_seconds` if the network is slow, or check coordinator load. |
+| `Permission denied` reading the config after a manual edit. | Set `chown root:zisk-coordinator /etc/zisk/coordinator.toml` and mode 640. |
+| Worker comes up, registers, then exits seconds later. | Almost always OOM. Check `dmesg | tail` and `journalctl -k | grep oom`. Reduce `compute_units` or move to a bigger host. |
+
+---
+
+## Summary
+
+You have one or more Linux hosts running the prover under
+systemd, with hardened service units, journald logging,
+and configs in `/etc/zisk/`. The coordinator is reachable
+on its three ports and the workers are registered.
+Operationally this is the production ready shape; the rest
+of the tutorial adds verification (the next page) and the
+monitoring needed to keep it healthy.
+
+---
+
+## Next steps
+
+Continue to [Testing your deployment](./testing) to point
+a small Rust host program at the cluster you just deployed
+and watch a real proof come back. If you also want to see
+the Docker Compose path (for example to compare deployment
+shapes before committing to one), [Deploy via
+docker-compose](./docker-compose) is the alternative
+deployment guide.

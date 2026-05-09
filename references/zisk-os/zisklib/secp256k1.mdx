@@ -1,0 +1,1088 @@
+---
+id: secp256k1
+title: secp256k1
+sidebar_position: 3
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`zisklib` functions for secp256k1 (K-256) base and scalar field arithmetic,
+curve point operations, ECDSA signature verification and recovery, and
+BIP-340 Schnorr verification.
+
+</Summary>
+
+## Module overview
+
+secp256k1 is the curve underlying Bitcoin, Ethereum, and most modern
+blockchains. Chain-validation guests touch every layer of the stack, so
+the zisklib surface exposes the full ECC hierarchy rather than only the
+top-level signature primitives.
+
+The base field reduces hashes and encodes coordinates. The scalar field
+holds private keys, ECDSA nonces, and `s` values. Curve points carry
+public keys and intermediate sums. Signatures sit on top: ECDSA backs
+EVM transaction validation, Schnorr backs BIP-340 taproot.
+
+## Hierarchy
+
+Four layers stack onto each other. Each level is a strict client of the
+ones below it.
+
+| Layer | What it is | Used for |
+|---|---|---|
+| Fp (base field) | Arithmetic mod the prime `p` | Coordinate arithmetic, hash-to-curve |
+| Fn (scalar field) | Arithmetic mod the curve order `n` | Private keys, nonces, ECDSA `s` |
+| Curve | Affine points on `y² = x³ + 7` | Public keys, point sums, scalar mul |
+| Signatures | ECDSA verify/recover, Schnorr verify | Transaction validation |
+
+:::note
+Points are `[u64; 8]` (x ++ y, 4 LE limbs each, 256 bits per coordinate).
+Field elements (Fp) and scalar elements (Fn) are `[u64; 4]` LE limbs.
+The `hints: &mut Vec<u64>` argument shown in each signature is gated by
+`#[cfg(feature = "hints")]` and is only present when that feature is
+enabled.
+:::
+
+---
+
+## Base field (Fp)
+
+Arithmetic modulo the secp256k1 prime `p`. Callers reduce raw 256-bit
+inputs, then add, multiply, square, invert, or take square roots.
+Coordinate arithmetic in the curve layer and the `r ≡ x (mod p)` check
+in ECDSA both bottom out here.
+
+<FnPanel>
+
+<FnDef name="reduce_fp_secp256k1">
+
+Reduction in the secp256k1 base field Fp. Returns `x` unchanged when it is
+already less than `p`; otherwise computes `x mod p`.
+
+```rust
+pub fn reduce_fp_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Value to reduce, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x mod p` in the secp256k1 base field. |
+
+#### Example
+
+```rust
+let reduced = zisklib::reduce_fp_secp256k1(&x_limbs);
+```
+
+</FnDef>
+
+<FnDef name="add_fp_secp256k1">
+
+Addition in the secp256k1 base field Fp.
+
+```rust
+pub fn add_fp_secp256k1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fp operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fp operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x + y) mod p`. |
+
+#### Example
+
+```rust
+let sum = zisklib::add_fp_secp256k1(&x_limbs, &y_limbs);
+```
+
+</FnDef>
+
+<FnDef name="neg_fp_secp256k1">
+
+Negation in the secp256k1 base field Fp.
+
+```rust
+pub fn neg_fp_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fp element to negate, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(-x) mod p`. |
+
+#### Example
+
+```rust
+let neg = zisklib::neg_fp_secp256k1(&x_limbs);
+```
+
+</FnDef>
+
+<FnDef name="sub_fp_secp256k1">
+
+Subtraction in the secp256k1 base field Fp.
+
+```rust
+pub fn sub_fp_secp256k1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Minuend as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Subtrahend as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x - y) mod p`. |
+
+#### Example
+
+```rust
+let diff = zisklib::sub_fp_secp256k1(&x_limbs, &y_limbs);
+```
+
+</FnDef>
+
+<FnDef name="mul_fp_secp256k1">
+
+Multiplication in the secp256k1 base field Fp.
+
+```rust
+pub fn mul_fp_secp256k1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fp operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fp operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x * y) mod p`. |
+
+#### Example
+
+```rust
+let product = zisklib::mul_fp_secp256k1(&x_limbs, &y_limbs);
+```
+
+</FnDef>
+
+<FnDef name="square_fp_secp256k1">
+
+Squaring in the secp256k1 base field Fp.
+
+```rust
+pub fn square_fp_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fp element to square, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x * x) mod p`. |
+
+#### Example
+
+```rust
+let sq = zisklib::square_fp_secp256k1(&x_limbs);
+```
+
+</FnDef>
+
+<FnDef name="sqrt_fp_secp256k1">
+
+Square root in the secp256k1 base field Fp. Returns `(sqrt, is_qr)`.
+When `is_qr` is true, `sqrt` satisfies `sqrt² ≡ x (mod p)` with the
+requested parity. When `is_qr` is false, `sqrt` satisfies
+`sqrt² ≡ x·NQR (mod p)` for the implementation-defined non-residue `NQR`.
+
+```rust
+pub fn sqrt_fp_secp256k1(
+    x: &[u64; 4],
+    parity: u64,
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> ([u64; 4], bool)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fp element to take the square root of. |
+| `parity` | `u64` | Selects the root: `0` for even, `1` for odd canonical representative. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `([u64; 4], bool)` | The square root and a flag indicating whether `x` is a quadratic residue. |
+
+#### Example
+
+```rust
+let (root, is_qr) = zisklib::sqrt_fp_secp256k1(&x_limbs, 0);
+if is_qr {
+    // root is a valid square root of x mod p
+}
+```
+
+</FnDef>
+
+<FnDef name="inv_fp_secp256k1">
+
+Inversion in the secp256k1 base field Fp. Returns `0` when `x == 0`.
+
+```rust
+pub fn inv_fp_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fp element to invert, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x⁻¹ mod p`, or `0` if `x` is zero. |
+
+#### Example
+
+```rust
+let inv = zisklib::inv_fp_secp256k1(&x_limbs);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Scalar field (Fn)
+
+Arithmetic modulo the curve order `n`. Private keys, ECDSA nonces, and
+the `s` value of a signature live here. The curve layer reduces scalars
+through this field before each scalar multiplication, and ECDSA verify
+performs its `s⁻¹` and `z·s⁻¹` work directly on Fn elements.
+
+<FnPanel>
+
+<FnDef name="reduce_fn_secp256k1">
+
+Reduces a 256-bit value modulo the secp256k1 curve order `n`.
+
+```rust
+pub fn reduce_fn_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | 256-bit integer as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x mod n` in the secp256k1 scalar field. |
+
+#### Example
+
+```rust
+let reduced = zisklib::reduce_fn_secp256k1(&scalar);
+```
+
+</FnDef>
+
+<FnDef name="add_fn_secp256k1">
+
+Addition in the secp256k1 scalar field Fn.
+
+```rust
+pub fn add_fn_secp256k1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First scalar operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second scalar operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x + y) mod n`. |
+
+#### Example
+
+```rust
+let sum = zisklib::add_fn_secp256k1(&a, &b);
+```
+
+</FnDef>
+
+<FnDef name="neg_fn_secp256k1">
+
+Negation in the secp256k1 scalar field Fn.
+
+```rust
+pub fn neg_fn_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Scalar field element as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(n - x) mod n`. |
+
+#### Example
+
+```rust
+let neg_s = zisklib::neg_fn_secp256k1(&s);
+```
+
+</FnDef>
+
+<FnDef name="sub_fn_secp256k1">
+
+Subtraction in the secp256k1 scalar field Fn.
+
+```rust
+pub fn sub_fn_secp256k1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Minuend as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Subtrahend as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x - y) mod n`. |
+
+#### Example
+
+```rust
+let diff = zisklib::sub_fn_secp256k1(&a, &b);
+```
+
+</FnDef>
+
+<FnDef name="mul_fn_secp256k1">
+
+Multiplication in the secp256k1 scalar field Fn.
+
+```rust
+pub fn mul_fn_secp256k1(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First scalar operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second scalar operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x * y) mod n`. |
+
+#### Example
+
+```rust
+let product = zisklib::mul_fn_secp256k1(&a, &b);
+```
+
+</FnDef>
+
+<FnDef name="square_fn_secp256k1">
+
+Squaring in the secp256k1 scalar field Fn.
+
+```rust
+pub fn square_fn_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Scalar to square, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `(x * x) mod n`. |
+
+#### Example
+
+```rust
+let sq = zisklib::square_fn_secp256k1(&x);
+```
+
+</FnDef>
+
+<FnDef name="inv_fn_secp256k1">
+
+Inversion in the secp256k1 scalar field Fn. Returns `0` when `x == 0`.
+
+```rust
+pub fn inv_fn_secp256k1(
+    x: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Scalar to invert, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x⁻¹ mod n`, or `0` if `x` is zero. |
+
+#### Example
+
+```rust
+let inv = zisklib::inv_fn_secp256k1(&x);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Curve
+
+Point addition, doubling, and scalar multiplication on `y² = x³ + 7`.
+Built on Fp for coordinate arithmetic and Fn for scalar reduction.
+Used directly by ECDSA `recover` to compute `s⁻¹·(z·G + r·R)` and by
+Schnorr `verify` to check `s·G - e·P == R`. Multi-scalar variants back
+batch verification.
+
+<FnPanel>
+
+<FnDef name="jacobian_to_affine_secp256k1">
+
+Converts a non-infinity secp256k1 point from Jacobian coordinates
+(`[u64; 12]` = X ++ Y ++ Z) to affine coordinates (`[u64; 8]` = x ++ y).
+
+```rust
+pub fn jacobian_to_affine_secp256k1(
+    p: &[u64; 12],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 12]` | Jacobian point as X ++ Y ++ Z, each 4 LE limbs. Must not be the point at infinity. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | Affine point x ++ y as 4 LE limbs each. |
+
+#### Example
+
+```rust
+let affine = zisklib::jacobian_to_affine_secp256k1(&jac_point);
+```
+
+</FnDef>
+
+<FnDef name="lift_x_secp256k1">
+
+Recovers the secp256k1 point with the given x-coordinate and y-parity.
+Returns `Err(false)` if no point on the curve has that x-coordinate.
+
+```rust
+pub fn lift_x_secp256k1(
+    x: &[u64; 4],
+    y_is_odd: bool,
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 8], bool>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | x-coordinate as 4 LE limbs. |
+| `y_is_odd` | `bool` | `true` selects the odd y root; `false` selects the even root. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 8], bool>` | `Ok([u64; 8])` with the recovered point (x ++ y limbs), or `Err(false)` if no valid point exists for `x`. |
+
+#### Example
+
+```rust
+let point = zisklib::lift_x_secp256k1(&x_limbs, false)
+    .expect("invalid x-coordinate");
+```
+
+</FnDef>
+
+<FnDef name="is_on_curve_secp256k1">
+
+Checks whether the affine point `p` satisfies y² = x³ + 7. Assumes `p`
+is not the point at infinity.
+
+```rust
+pub fn is_on_curve_secp256k1(
+    p: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | Affine point encoded as x ++ y, each 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if `p` satisfies the secp256k1 curve equation, `false` otherwise. |
+
+#### Example
+
+```rust
+assert!(zisklib::is_on_curve_secp256k1(&point));
+```
+
+</FnDef>
+
+<FnDef name="point_add_secp256k1">
+
+Adds two affine secp256k1 points. Assumes both inputs are non-infinity.
+Returns `None` if the result is the point at infinity.
+
+```rust
+pub fn point_add_secp256k1(
+    p1: &[u64; 8],
+    p2: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Option<[u64; 8]>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 8]` | First affine point (x ++ y limbs). |
+| `p2` | `&[u64; 8]` | Second affine point (x ++ y limbs). |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Option<[u64; 8]>` | `Some(p1 + p2)` as affine point, or `None` if the sum is the point at infinity. |
+
+#### Example
+
+```rust
+let sum = zisklib::point_add_secp256k1(&p1, &p2)
+    .expect("result is point at infinity");
+```
+
+</FnDef>
+
+<FnDef name="scalar_mul_secp256k1">
+
+Computes the scalar multiplication `k·p` for a non-infinity point `p`.
+Returns `None` if the result is the point at infinity (only when `k == 0`,
+since secp256k1 has no non-infinity points of small order).
+
+```rust
+pub fn scalar_mul_secp256k1(
+    k: &[u64; 4],
+    p: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Option<[u64; 8]>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `k` | `&[u64; 4]` | Scalar as 4 LE limbs. |
+| `p` | `&[u64; 8]` | Base point as x ++ y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Option<[u64; 8]>` | `Some([u64; 8])` with the resulting point, or `None` if the result is the point at infinity. |
+
+#### Example
+
+```rust
+let result = zisklib::scalar_mul_secp256k1(&k, &generator)
+    .expect("scalar multiplication returned point at infinity");
+```
+
+</FnDef>
+
+<FnDef name="double_scalar_mul_with_g_secp256k1">
+
+Computes `k1·G + k2·p` using a joint scalar-multiplication loop. Assumes
+`k1, k2 ∈ [0, n-1]` and `p != 𝒪`. Returns `None` if the result is the
+point at infinity.
+
+```rust
+pub fn double_scalar_mul_with_g_secp256k1(
+    k1: &[u64; 4],
+    k2: &[u64; 4],
+    p: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Option<[u64; 8]>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `k1` | `&[u64; 4]` | Scalar for the generator `G`. |
+| `k2` | `&[u64; 4]` | Scalar for the user-supplied point `p`. |
+| `p` | `&[u64; 8]` | Affine non-infinity point as x ++ y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Option<[u64; 8]>` | `Some(k1·G + k2·p)`, or `None` if the result is the point at infinity. |
+
+#### Example
+
+```rust
+let r = zisklib::double_scalar_mul_with_g_secp256k1(&k1, &k2, &pk)
+    .expect("result is point at infinity");
+```
+
+</FnDef>
+
+<FnDef name="triple_scalar_mul_with_g_secp256k1">
+
+Computes `r·G + s·p + t·q`. Assumes `r, s, t ∈ [1, n-1]` and `p, q != 𝒪`.
+Returns `None` if the result is the point at infinity.
+
+```rust
+pub fn triple_scalar_mul_with_g_secp256k1(
+    r: &[u64; 4],
+    s: &[u64; 4],
+    t: &[u64; 4],
+    p: &[u64; 8],
+    q: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Option<[u64; 8]>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `r` | `&[u64; 4]` | Scalar for the generator `G`. |
+| `s` | `&[u64; 4]` | Scalar for point `p`. |
+| `t` | `&[u64; 4]` | Scalar for point `q`. |
+| `p` | `&[u64; 8]` | First user-supplied affine point. |
+| `q` | `&[u64; 8]` | Second user-supplied affine point. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Option<[u64; 8]>` | `Some(r·G + s·p + t·q)`, or `None` if the result is the point at infinity. |
+
+#### Example
+
+```rust
+let result = zisklib::triple_scalar_mul_with_g_secp256k1(
+    &r, &s, &t, &p, &q,
+).expect("result is point at infinity");
+```
+
+</FnDef>
+
+<FnDef name="multi_scalar_mul_secp256k1">
+
+Pippenger's bucket-method multi-scalar multiplication: computes
+`Σ kᵢ·Pᵢ`. Assumes all points are non-infinity and that scalars are in
+`[0, n-1]`. The two slices must have equal length. Returns `None` when
+the result is the point at infinity (including the empty input case).
+
+```rust
+pub fn multi_scalar_mul_secp256k1(
+    scalars: &[[u64; 4]],
+    points: &[[u64; 8]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Option<[u64; 8]>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `scalars` | `&[[u64; 4]]` | Scalars as 4 LE limbs each. |
+| `points` | `&[[u64; 8]]` | Affine non-infinity points as x ++ y limbs each. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Option<[u64; 8]>` | `Some(Σ kᵢ·Pᵢ)`, or `None` if the result is the point at infinity. |
+
+#### Example
+
+```rust
+let result = zisklib::multi_scalar_mul_secp256k1(&scalars, &points);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## ECDSA
+
+ECDSA signature verification and public-key recovery. Verify checks an
+existing `(r, s)` against a known public key. Recover reconstructs the
+public key from `(r, s, z, recid)`, the path Ethereum uses to derive
+the signer address from a transaction. Both pull from Fn for inversion
+and from the curve layer for the joint scalar multiplication.
+
+<FnPanel>
+
+<FnDef name="ecdsa_verify_secp256k1">
+
+Verifies an ECDSA signature `(r, s)` over message hash `z` with public
+key `pk`. Internally hints `(x, y) = z·s⁻¹·G + r·s⁻¹·pk`, checks that
+`[z]G + [r]pk + [-s](x, y) == 𝒪`, and that `x ≡ r (mod n)`.
+
+```rust
+pub fn ecdsa_verify_secp256k1(
+    pk: &[u64; 8],
+    z: &[u64; 4],
+    r: &[u64; 4],
+    s: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `pk` | `&[u64; 8]` | Public key as an affine point (x ++ y limbs). |
+| `z` | `&[u64; 4]` | Message hash as 4 LE limbs. |
+| `r` | `&[u64; 4]` | Signature `r` component as 4 LE limbs. |
+| `s` | `&[u64; 4]` | Signature `s` component as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if the signature is valid for the given public key and message hash, `false` otherwise. |
+
+#### Example
+
+```rust
+let valid = zisklib::ecdsa_verify_secp256k1(&pk, &msg_hash, &r, &s);
+assert!(valid);
+```
+
+</FnDef>
+
+<FnDef name="ecdsa_recover_secp256k1">
+
+Recovers the public-key point from a compact signature `(r, s)`, message
+hash `z`, and recovery id `recid` (0 or 1). On failure returns one of the
+error codes `ECDSA_RECOVER_ERR_INVALID_R` (1), `ECDSA_RECOVER_ERR_INVALID_S`
+(2), `ECDSA_RECOVER_ERR_INVALID_RECID` (3), `ECDSA_RECOVER_ERR_POINT_NOT_ON_CURVE`
+(4), or `ECDSA_RECOVER_ERR_RECOVERY_FAILED` (5).
+
+```rust
+pub fn ecdsa_recover_secp256k1(
+    r: &[u64; 4],
+    s: &[u64; 4],
+    z: &[u64; 4],
+    recid: u8,
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 8], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `r` | `&[u64; 4]` | Signature `r` component as 4 LE limbs. |
+| `s` | `&[u64; 4]` | Signature `s` component as 4 LE limbs. |
+| `z` | `&[u64; 4]` | Message hash as 4 LE limbs. |
+| `recid` | `u8` | Recovery id: `0` or `1`. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 8], u8>` | `Ok([u64; 8])` with the recovered public key as an affine point, or `Err(code)` with one of the `ECDSA_RECOVER_ERR_*` codes. |
+
+#### Example
+
+```rust
+let pk = zisklib::ecdsa_recover_secp256k1(&r, &s, &z, 0)
+    .expect("public key recovery failed");
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Schnorr (BIP-340)
+
+BIP-340 Schnorr verification, the signature scheme used by Bitcoin
+taproot. Inputs are 32-byte big-endian, x-only public keys. The single
+verifier checks one signature; the batch verifier folds many into a
+single Pippenger MSM through the curve layer for amortized cost.
+
+<FnPanel>
+
+<FnDef name="schnorr_verify_secp256k1">
+
+Verifies a single BIP-340 Schnorr signature on secp256k1 over an
+arbitrary-length message. Public key, `r`, and `s` are 32-byte
+big-endian inputs.
+
+```rust
+pub fn schnorr_verify_secp256k1(
+    msg: &[u8],
+    pk_x: &[u8; 32],
+    sig_r: &[u8; 32],
+    sig_s: &[u8; 32],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `msg` | `&[u8]` | Arbitrary-length message bytes. |
+| `pk_x` | `&[u8; 32]` | x-only public key, 32 bytes big-endian. |
+| `sig_r` | `&[u8; 32]` | Signature `r` component, 32 bytes big-endian. |
+| `sig_s` | `&[u8; 32]` | Signature `s` component, 32 bytes big-endian. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if the signature is valid per BIP-340, `false` otherwise. |
+
+#### Example
+
+```rust
+let valid = zisklib::schnorr_verify_secp256k1(msg, &pk_x, &sig_r, &sig_s);
+assert!(valid);
+```
+
+</FnDef>
+
+<FnDef name="schnorr_batch_verify_secp256k1">
+
+BIP-340 batch verification using a single Pippenger multi-scalar
+multiplication. The four input slices must all have length `u`. Panics
+if the slice lengths disagree. Returns `true` only when every signature
+in the batch is valid.
+
+```rust
+pub fn schnorr_batch_verify_secp256k1(
+    msgs: &[&[u8]],
+    pk_xs: &[&[u8; 32]],
+    sig_rs: &[&[u8; 32]],
+    sig_ss: &[&[u8; 32]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `msgs` | `&[&[u8]]` | Per-signature message slices. |
+| `pk_xs` | `&[&[u8; 32]]` | Per-signature x-only public keys, big-endian. |
+| `sig_rs` | `&[&[u8; 32]]` | Per-signature `r` components, big-endian. |
+| `sig_ss` | `&[&[u8; 32]]` | Per-signature `s` components, big-endian. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if every signature in the batch verifies, `false` otherwise. |
+
+#### Example
+
+```rust
+let valid = zisklib::schnorr_batch_verify_secp256k1(
+    &msgs, &pk_xs, &sig_rs, &sig_ss,
+);
+assert!(valid);
+```
+
+</FnDef>
+
+</FnPanel>
+
+## See also
+
+- [secp256r1 zisklib](/references/zisk-os/zisklib/secp256r1): same hierarchy on the NIST P-256 curve.
+- [secp256k1 precompile](/references/zisk-os/precompiles/secp256k1): low-level precompile that backs these functions.
+- [zisklib index](/references/zisk-os/zisklib): full list of zisklib modules.

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg class="zisk" viewBox="0 0 1100 560" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+<style><![CDATA[
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+text { font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.mono { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; }
+
+.n-chip rect, .n-chip polygon { fill: #2D2E3D; stroke: #15161D; stroke-width: 1; }
+.n-chip text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-chip text.kind { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-chip text.sub { fill: #B9B9C5; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+.n-art text.name { fill: #FFFFFF; font-weight: 600; font-size: 14px; }
+.n-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+.n-art text.sub { fill: #B9F0CF; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10px; }
+
+.n-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+.n-out text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+.n-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+.n-dec polygon { fill: #FFFFFF; stroke: #007755; stroke-width: 1.5; }
+.n-dec rect { fill: #F3F3F2; stroke: #007755; stroke-width: 1.5; }
+.n-dec text.name { fill: #15161D; font-weight: 600; font-size: 14px; }
+
+.edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.edge-dim { fill: none; stroke: #7E7F8C; stroke-width: 1.3; stroke-dasharray: 4 4; }
+.edge-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #4A4C59; }
+.edge-label-bg { fill: #FFFFFF; stroke: none; }
+
+.subgraph rect { fill: rgba(110,91,224,0.04); stroke: #6E5BE0; stroke-width: 1; stroke-dasharray: 6 4; }
+.subgraph.vm rect { fill: rgba(0,179,89,0.04); stroke: #007755; }
+.subgraph text.label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; fill: #6E5BE0; font-weight: 600; }
+.subgraph.vm text.label { fill: #007755; }
+
+.seq-life { stroke: #B9B9C5; stroke-width: 1; stroke-dasharray: 3 4; }
+.seq-msg { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-dashed { fill: none; stroke: #15161D; stroke-width: 1.4; stroke-dasharray: 5 4; }
+.seq-self { fill: none; stroke: #15161D; stroke-width: 1.4; }
+.seq-msg-label { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-note rect { fill: rgba(0,179,89,0.07); stroke: #007755; stroke-width: 1; rx: 4; }
+.seq-note text { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 11px; fill: #15161D; }
+.seq-step-num { font-family: 'IBM Plex Mono', 'SF Mono', Consolas, monospace; font-size: 9.5px; fill: #7E7F8C; letter-spacing: 0.1em; }
+]]></style><marker id="arr18" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L9,5 L0,10 z" fill="#15161D"/></marker></defs>
+
+          <g class="n-chip" transform="translate(120,20)"><rect width="220" height="50" rx="6"/><text class="name" x="110" y="32" text-anchor="middle">Verifier</text></g>
+          <g class="n-chip" transform="translate(720,20)"><rect width="220" height="50" rx="6"/><text class="name" x="110" y="32" text-anchor="middle">Proof file</text></g>
+
+          <line class="seq-life" x1="230" y1="70" x2="230" y2="540"/>
+          <line class="seq-life" x1="830" y1="70" x2="830" y2="540"/>
+
+          <text class="seq-step-num" x="40" y="118">01</text>
+          <path class="seq-msg" d="M 230 120 L 829 120" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="530" y="112" text-anchor="middle">load proof bytes + public values + program commitment</text>
+
+          <text class="seq-step-num" x="40" y="168">02</text>
+          <path class="seq-self" d="M 230 170 C 340 170, 340 200, 230 200" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="188" text-anchor="start">re-derive the shared challenge from the proof</text>
+
+          <text class="seq-step-num" x="40" y="248">03</text>
+          <path class="seq-self" d="M 230 250 C 340 250, 340 280, 230 280" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="268" text-anchor="start">check the consistency total is zero</text>
+
+          <text class="seq-step-num" x="40" y="328">04</text>
+          <path class="seq-self" d="M 230 330 C 340 330, 340 360, 230 360" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="348" text-anchor="start">check the challenge total matches the re-derived value</text>
+
+          <text class="seq-step-num" x="40" y="408">05</text>
+          <path class="seq-self" d="M 230 410 C 340 410, 340 440, 230 440" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="428" text-anchor="start">verify the root STARK (or PLONK) proof</text>
+
+          <g class="seq-note">
+            <rect x="600" y="455" width="280" height="42"/>
+            <text x="740" y="475" text-anchor="middle">constant-time arithmetic,</text>
+            <text x="740" y="490" text-anchor="middle">no trace replay</text>
+          </g>
+
+          <text class="seq-step-num" x="40" y="528">06</text>
+          <path class="seq-self" d="M 230 530 C 340 530, 340 545, 230 545" stroke-dasharray="5 4" marker-end="url(#arr18)"/>
+          <text class="seq-msg-label" x="355" y="540" text-anchor="start">Ok if all checks pass</text>
+        </svg>

@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>ZisK Proving Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink-050: #FFFFFF;
+    --ink-100: #F7F8FA;
+    --border: #D9DCE3;
+    --text: #15161D;
+    --text-2: #4A4C59;
+    --text-3: #7E7F8C;
+    --green-bright: #00B359;
+    --green-deep: #007755;
+    --green-light: #B9F0CF;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ink-050);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    padding: 56px 56px 64px;
+  }
+  .page { max-width: 1480px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 32px;
+    align-items: end;
+    margin-bottom: 28px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--green-bright);
+    margin: 0 0 10px;
+  }
+  .title {
+    font-weight: 800;
+    font-size: 38px;
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+    margin: 0 0 8px;
+  }
+  .title em { font-style: normal; color: var(--green-bright); }
+  .subtitle {
+    font-size: 14px;
+    color: var(--text-2);
+    max-width: 70ch;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .header-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    text-align: right;
+    line-height: 1.9;
+    letter-spacing: 0.04em;
+  }
+  .header-meta b { color: var(--text); font-weight: 500; }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 24px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 28px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-2);
+    background: var(--ink-100);
+    letter-spacing: 0.04em;
+    flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .swatch {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+  .swatch.art { background: var(--green-deep); border-color: var(--green-deep); }
+  .swatch.out { background: var(--green-light); border-color: var(--green-bright); }
+  .swatch.dec {
+    background: var(--ink-050);
+    transform: rotate(45deg);
+    width: 12px; height: 12px;
+    border: 1.5px solid var(--green-deep);
+  }
+  .line {
+    display: inline-block;
+    width: 28px; height: 0;
+    border-top: 1.5px solid var(--text-2);
+  }
+  .line.dotted { border-top-style: dotted; border-top-width: 2px; }
+
+  /* Diagram canvas */
+  .canvas {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background:
+      radial-gradient(800px 400px at 20% 0%, rgba(0,179,89,0.05), transparent 60%),
+      var(--ink-050);
+    padding: 36px 28px;
+    overflow-x: auto;
+  }
+  .canvas svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* Footer */
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 28px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--text-3);
+    letter-spacing: 0.1em;
+  }
+  .footer .z {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--green-bright);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="header">
+    <div>
+      <p class="eyebrow">Proving Pipeline · Overview</p>
+      <h1 class="title">The ZisK <em>proving</em> pipeline</h1>
+      <p class="subtitle">
+        Six stages turn a Rust program into a verified proof: compile, setup, execute, prove, wrap, verify.
+      </p>
+    </div>
+    <div class="header-meta">
+      <div>stages <b>6</b></div>
+      <div>cli <b>cargo-zisk</b></div>
+      <div>updated <b>2026-05-05</b></div>
+    </div>
+  </header>
+
+  <div class="legend">
+    <div class="legend-item"><span class="swatch art"></span>artifact</div>
+    <div class="legend-item"><span class="swatch out"></span>output</div>
+    <div class="legend-item"><span class="swatch dec"></span>decision</div>
+    <div class="legend-item"><span class="line"></span>data flow</div>
+    <div class="legend-item"><span class="line dotted"></span>inputs</div>
+  </div>
+
+  <div class="canvas">
+    <svg viewBox="0 0 1400 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ZisK proving pipeline diagram">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L9,5 L0,10 z" fill="#15161D"/>
+        </marker>
+        <marker id="arr-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L9,5 L0,10 z" fill="#7E7F8C"/>
+        </marker>
+
+        <style>
+          .node-art rect { fill: #007755; stroke: #00553D; stroke-width: 1; }
+          .node-art text.name { fill: #FFFFFF; font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; font-size: 14px; }
+          .node-art text.kind { fill: #B9F0CF; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+          .node-out rect { fill: #B9F0CF; stroke: #00B359; stroke-width: 1.2; }
+          .node-out text.name { fill: #15161D; font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; font-size: 14px; }
+          .node-out text.kind { fill: #007755; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+          .node-dec polygon { fill: #FFFFFF; stroke: #007755; stroke-width: 1.5; }
+          .node-dec text.name { fill: #15161D; font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; font-size: 14px; }
+
+          .edge { fill: none; stroke: #15161D; stroke-width: 1.4; }
+          .edge.dim { stroke: #7E7F8C; stroke-dasharray: 4 4; stroke-width: 1.3; }
+
+          .edge-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            fill: #4A4C59;
+            letter-spacing: 0.02em;
+          }
+          .edge-label-bg {
+            fill: #FFFFFF;
+            stroke: none;
+          }
+        </style>
+      </defs>
+
+      <!-- Column x positions:
+           SRC: 60   ELF: 250   PK: 460(top) TRACE: 460(bot)   STARK: 700   WRAP: 900   OUT: 1080   VER: 1280 -->
+
+      <!-- Rust source -->
+      <g class="node-art" transform="translate(20,140)">
+        <rect width="160" height="80" rx="8"/>
+        <text class="kind" x="80" y="22" text-anchor="middle">artifact</text>
+        <text class="name" x="80" y="48" text-anchor="middle">Rust source</text>
+        <text class="kind" x="80" y="66" text-anchor="middle" style="opacity:0.85">guest crate</text>
+      </g>
+
+      <!-- RISC-V ELF -->
+      <g class="node-art" transform="translate(220,140)">
+        <rect width="160" height="80" rx="8"/>
+        <text class="kind" x="80" y="22" text-anchor="middle">artifact</text>
+        <text class="name" x="80" y="48" text-anchor="middle">RISC-V ELF</text>
+        <text class="kind" x="80" y="66" text-anchor="middle" style="opacity:0.85">riscv64ima-zisk</text>
+      </g>
+
+      <!-- proving key (top) -->
+      <g class="node-art" transform="translate(440,40)">
+        <rect width="160" height="80" rx="8"/>
+        <text class="kind" x="80" y="22" text-anchor="middle">artifact</text>
+        <text class="name" x="80" y="48" text-anchor="middle">proving key</text>
+        <text class="kind" x="80" y="66" text-anchor="middle" style="opacity:0.85">+ commitment</text>
+      </g>
+
+      <!-- trace (bottom) -->
+      <g class="node-art" transform="translate(440,240)">
+        <rect width="160" height="80" rx="8"/>
+        <text class="kind" x="80" y="22" text-anchor="middle">artifact</text>
+        <text class="name" x="80" y="48" text-anchor="middle">trace</text>
+        <text class="kind" x="80" y="66" text-anchor="middle" style="opacity:0.85">execution</text>
+      </g>
+
+      <!-- STARK proof -->
+      <g class="node-art" transform="translate(660,140)">
+        <rect width="160" height="80" rx="8"/>
+        <text class="kind" x="80" y="22" text-anchor="middle">artifact</text>
+        <text class="name" x="80" y="48" text-anchor="middle">STARK proof</text>
+      </g>
+
+      <!-- wrap (diamond) -->
+      <g class="node-dec" transform="translate(880,140)">
+        <polygon points="80,0 160,40 80,80 0,40"/>
+        <text class="name" x="80" y="46" text-anchor="middle">wrap?</text>
+      </g>
+
+      <!-- final proof -->
+      <g class="node-out" transform="translate(1080,140)">
+        <rect width="160" height="80" rx="8"/>
+        <text class="kind" x="80" y="22" text-anchor="middle">output</text>
+        <text class="name" x="80" y="48" text-anchor="middle">final proof</text>
+      </g>
+
+      <!-- verified -->
+      <g class="node-out" transform="translate(1280,140)">
+        <rect width="100" height="80" rx="8"/>
+        <text class="kind" x="50" y="22" text-anchor="middle">terminal</text>
+        <text class="name" x="50" y="48" text-anchor="middle">verified</text>
+      </g>
+
+      <!-- ============ EDGES ============ -->
+
+      <!-- SRC -> ELF (compile) -->
+      <path class="edge" d="M 180 180 L 220 180" marker-end="url(#arr)"/>
+      <rect class="edge-label-bg" x="183" y="160" width="54" height="14" rx="2"/>
+      <text class="edge-label" x="210" y="171" text-anchor="middle">compile</text>
+
+      <!-- ELF -> PK (setup, top branch) -->
+      <path class="edge" d="M 380 165 C 410 165, 410 80, 440 80" marker-end="url(#arr)"/>
+      <text class="edge-label" x="415" y="118" text-anchor="middle">setup</text>
+
+      <!-- ELF -> TRACE (execute, bottom branch) -->
+      <path class="edge" d="M 380 195 C 410 195, 410 280, 440 280" marker-end="url(#arr)"/>
+      <text class="edge-label" x="415" y="248" text-anchor="middle">execute</text>
+
+      <!-- PK -> STARK (prove) -->
+      <path class="edge" d="M 600 80 C 630 80, 630 165, 660 165" marker-end="url(#arr)"/>
+      <text class="edge-label" x="635" y="118" text-anchor="middle">prove</text>
+
+      <!-- TRACE -> STARK (inputs, dotted) -->
+      <path class="edge dim" d="M 600 280 C 630 280, 630 195, 660 195" marker-end="url(#arr-dim)"/>
+      <text class="edge-label" x="635" y="248" text-anchor="middle" fill="#7E7F8C">inputs</text>
+
+      <!-- STARK -> WRAP -->
+      <path class="edge" d="M 820 180 L 880 180" marker-end="url(#arr)"/>
+
+      <!-- WRAP -> OUT (none, top branch) -->
+      <path class="edge" d="M 1040 180 C 1060 180, 1060 165, 1080 165" marker-end="url(#arr)"/>
+      <rect class="edge-label-bg" x="1043" y="148" width="36" height="14" rx="2"/>
+      <text class="edge-label" x="1061" y="159" text-anchor="middle">none</text>
+
+      <!-- WRAP -> OUT (PLONK, bottom branch) -->
+      <path class="edge" d="M 1040 180 C 1060 180, 1060 195, 1080 195" marker-end="url(#arr)"/>
+      <rect class="edge-label-bg" x="1043" y="200" width="40" height="14" rx="2"/>
+      <text class="edge-label" x="1063" y="211" text-anchor="middle">PLONK</text>
+
+      <!-- OUT -> VER (verify) -->
+      <path class="edge" d="M 1240 180 L 1280 180" marker-end="url(#arr)"/>
+      <rect class="edge-label-bg" x="1240" y="160" width="44" height="14" rx="2"/>
+      <text class="edge-label" x="1262" y="171" text-anchor="middle">verify</text>
+    </svg>
+  </div>
+
+  <div class="footer">
+    <span>ZISK × PROVING PIPELINE</span>
+    <span class="z">ZisK</span>
+  </div>
+</div>
+</body>
+</html>

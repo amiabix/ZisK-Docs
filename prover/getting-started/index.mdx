@@ -1,0 +1,33 @@
+---
+id: getting-started
+sidebar_position: 0
+title: Getting Started
+description: Understand what a distributed ZisK prover is and bring up your first single-host cluster.
+---
+
+import IndexPage, { PageCard } from '@site/src/components/IndexPage';
+
+<IndexPage summary="Before deploying anything, get the conceptual frame
+  in place: why proving is distributed, what components make up a cluster,
+  and what a small one looks like running on your own machine. By the end
+  of this section you will have a single-host coordinator and worker
+  running locally, and a clear mental model of what you are about to scale up.">
+  <PageCard
+    href="/prover/getting-started/understanding-distributed-proving"
+    tag="Concepts" tagColor="blue"
+    title="Understanding distributed proving"
+    description="Why the prover is distributed at all, what problem it solves, and when a multi-machine cluster is the right call."
+  />
+  <PageCard
+    href="/prover/getting-started/architecture"
+    tag="Concepts" tagColor="blue"
+    title="Prover Architecture"
+    description="The two binaries that make up a cluster, the three coordinator ports, what flows on each, and how a proof fans out and back in."
+  />
+  <PageCard
+    href="/prover/getting-started/quickstart"
+    tag="Start here" tagColor="green"
+    title="Quickstart"
+    description="Build the prover binaries, run a coordinator and a worker locally, and prove a small program end to end on a single-host cluster."
+  />
+</IndexPage>

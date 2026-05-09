@@ -1,0 +1,1025 @@
+---
+id: bn254
+title: BN254
+sidebar_position: 5
+displayed_sidebar: referencesSidebar
+toc_min_heading_level: 2
+toc_max_heading_level: 2
+---
+
+import FnPage, { FnPanel, FnDef } from '@site/src/components/FnPage';
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+`zisklib` functions for BN254 field arithmetic (Fp, Fp2, Fr), G1
+curve operations, and pairing computations.
+
+</Summary>
+
+## Module overview
+
+BN254 (a.k.a. alt_bn128) is the pairing-friendly curve exposed by
+the Ethereum precompiles in EIP-196 and EIP-197, and the curve most
+SNARK verifiers target on L1: Groth16 verifiers and PLONK verifiers
+both reduce to a small number of pairing checks against BN254 G1
+and G2 inputs.
+
+The pairing check is the verifier's core operation. Everything else
+on this page (Fp, Fp2, Fr, G1) feeds it: scalar multiplication
+forms verifier inputs, G1 / G2 carry the proof and verification
+key, and the pairing maps them into Fp12 where equality is decided.
+
+The type hierarchy:
+
+- **Fp** is the base field, integers mod the prime `p` (~254 bits).
+  G1 coordinates live here.
+- **Fp2** is the quadratic extension over Fp. G2 coordinates live
+  here, and the pairing target Fp12 is built on top of it.
+- **Fr** is the scalar field, integers mod the subgroup order `r`.
+  Used for scalar multiplication on G1 and G2.
+- **G1** is the curve `y² = x³ + 3` over Fp.
+- **G2** is the twisted curve over Fp2.
+- **Pairing** is the bilinear map `e: G1 × G2 → Fp12`. The Miller
+  loop computes the rational accumulator; final exponentiation
+  projects it into the target subgroup so equality testing is
+  meaningful.
+
+## When to use BN254 vs BLS12-381
+
+Use BN254 when the consumer is an Ethereum L1 precompile or a
+SNARK verifier built on Groth16 or PLONK that targets those
+precompiles. Use [BLS12-381](/references/zisk-os/zisklib/bls12-381)
+for BLS aggregate signatures, KZG commitments, and modern proof
+systems where the larger 381-bit field gives stronger security
+margins at the cost of per-operation work.
+
+:::note
+G1 points are `[u64; 8]` (x ++ y, 4 LE limbs per coordinate, 256 bits each).
+G2 points are `[u64; 16]` (Fp2 x ++ Fp2 y, 4 LE limbs per Fp element).
+GT elements (Fp12) are `[u64; 48]`.
+:::
+
+:::note hints feature gate
+Every BN254 routine that calls a syscall takes an extra
+`#[cfg(feature = "hints")] hints: &mut Vec<u64>` parameter. The
+argument is only present when the `hints` Cargo feature is enabled,
+so callers built without that feature pass nothing. The signatures
+below show the parameter exactly as it appears in source; omit it
+(and the trailing `#[cfg(feature = "hints")] hints,` argument at
+call sites) when the feature is off.
+:::
+
+---
+
+## Base field (Fp)
+
+Arithmetic mod the BN254 base prime `p`. Fp elements are the raw
+coordinates of G1 points and the components of every Fp2 element,
+so Fp operations underlie every routine in the rest of the page.
+
+<FnPanel>
+
+<FnDef name="add_fp_bn254">
+
+Addition in the BN254 base field Fp.
+
+```rust
+pub fn add_fp_bn254(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fp operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fp operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x + y mod p` in the BN254 base field. |
+
+#### Example
+
+```rust
+let sum = zisklib::add_fp_bn254(&x_limbs, &y_limbs);
+```
+
+</FnDef>
+
+<FnDef name="neg_fp_bn254">
+
+Negation in the BN254 base field Fp.
+
+```rust
+pub fn neg_fp_bn254(x: &[u64; 4], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fp element to negate, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `p - x mod p`. |
+
+#### Example
+
+```rust
+let neg_x = zisklib::neg_fp_bn254(&x_limbs);
+```
+
+</FnDef>
+
+<FnDef name="mul_fp_bn254">
+
+Multiplication in the BN254 base field Fp.
+
+```rust
+pub fn mul_fp_bn254(
+    x: &[u64; 4],
+    y: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | First Fp operand as 4 LE limbs. |
+| `y` | `&[u64; 4]` | Second Fp operand as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x * y mod p` in the BN254 base field. |
+
+#### Example
+
+```rust
+let product = zisklib::mul_fp_bn254(&x_limbs, &y_limbs);
+```
+
+</FnDef>
+
+<FnDef name="square_fp_bn254">
+
+Squaring in the BN254 base field Fp.
+
+```rust
+pub fn square_fp_bn254(x: &[u64; 4], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Fp element to square, as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x² mod p` in the BN254 base field. |
+
+#### Example
+
+```rust
+let sq = zisklib::square_fp_bn254(&x_limbs);
+```
+
+</FnDef>
+
+<FnDef name="inv_fp_bn254">
+
+Inversion in the BN254 base field Fp. Internally verifies that
+x · result ≡ 1.
+
+```rust
+pub fn inv_fp_bn254(x: &[u64; 4], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | Non-zero Fp element as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | The modular inverse `x⁻¹ mod p`. |
+
+#### Example
+
+```rust
+let inv = zisklib::inv_fp_bn254(&x_limbs);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Extension field (Fp2)
+
+The quadratic extension Fp2 = Fp[i] / (i² + 1). Its elements are
+pairs (re, im) of Fp values. G2 coordinates are Fp2 elements, and
+the pairing target Fp12 is built as a tower over Fp2, so these
+routines are the bridge from Fp into the pairing machinery.
+
+<FnPanel>
+
+<FnDef name="add_fp2_bn254">
+
+Addition in the BN254 extension field Fp2. Elements are
+`[u64; 8]` (real ++ imaginary, 4 LE limbs each).
+
+```rust
+pub fn add_fp2_bn254(
+    a: &[u64; 8],
+    b: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | First Fp2 element as 8 LE limbs (real ++ imaginary). |
+| `b` | `&[u64; 8]` | Second Fp2 element as 8 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `a + b` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let sum = zisklib::add_fp2_bn254(&a, &b);
+```
+
+</FnDef>
+
+<FnDef name="dbl_fp2_bn254">
+
+Doubling in the BN254 extension field Fp2.
+
+```rust
+pub fn dbl_fp2_bn254(a: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | Fp2 element as 8 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `2·a` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let doubled = zisklib::dbl_fp2_bn254(&a);
+```
+
+</FnDef>
+
+<FnDef name="neg_fp2_bn254">
+
+Negation in the BN254 extension field Fp2.
+
+```rust
+pub fn neg_fp2_bn254(a: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | Fp2 element as 8 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `-a` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let neg = zisklib::neg_fp2_bn254(&a);
+```
+
+</FnDef>
+
+<FnDef name="sub_fp2_bn254">
+
+Subtraction in the BN254 extension field Fp2.
+
+```rust
+pub fn sub_fp2_bn254(
+    a: &[u64; 8],
+    b: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | Minuend as 8 LE limbs. |
+| `b` | `&[u64; 8]` | Subtrahend as 8 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `a - b` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let diff = zisklib::sub_fp2_bn254(&a, &b);
+```
+
+</FnDef>
+
+<FnDef name="mul_fp2_bn254">
+
+Multiplication in the BN254 extension field Fp2.
+
+```rust
+pub fn mul_fp2_bn254(
+    a: &[u64; 8],
+    b: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | First Fp2 element as 8 LE limbs. |
+| `b` | `&[u64; 8]` | Second Fp2 element as 8 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `a * b` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let product = zisklib::mul_fp2_bn254(&a, &b);
+```
+
+</FnDef>
+
+<FnDef name="scalar_mul_fp2_bn254">
+
+Multiplies an Fp2 element `a` by an Fp scalar `b`.
+
+```rust
+pub fn scalar_mul_fp2_bn254(
+    a: &[u64; 8],
+    b: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | Fp2 element as 8 LE limbs. |
+| `b` | `&[u64; 4]` | Fp scalar as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `b·a` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let scaled = zisklib::scalar_mul_fp2_bn254(&a, &scalar);
+```
+
+</FnDef>
+
+<FnDef name="square_fp2_bn254">
+
+Squaring in the BN254 extension field Fp2.
+
+```rust
+pub fn square_fp2_bn254(a: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | Fp2 element to square, as 8 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `a²` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let sq = zisklib::square_fp2_bn254(&a);
+```
+
+</FnDef>
+
+<FnDef name="inv_fp2_bn254">
+
+Inversion in the BN254 extension field Fp2. Internally verifies
+that a · result ≡ 1.
+
+```rust
+pub fn inv_fp2_bn254(a: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | Non-zero Fp2 element as 8 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | The modular inverse `a⁻¹` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let inv = zisklib::inv_fp2_bn254(&a);
+```
+
+</FnDef>
+
+<FnDef name="conjugate_fp2_bn254">
+
+Complex conjugate in BN254 Fp2: maps (x, y) to (x, −y).
+
+```rust
+pub fn conjugate_fp2_bn254(
+    a: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `a` | `&[u64; 8]` | Fp2 element as 8 LE limbs (real ++ imaginary). |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | The complex conjugate `(a.re, -a.im)` in BN254 Fp2. |
+
+#### Example
+
+```rust
+let conj = zisklib::conjugate_fp2_bn254(&a);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Scalar field (Fr)
+
+Arithmetic mod the prime-order subgroup order `r`. Fr is the field
+of valid scalar multipliers for G1 and G2: any integer used with
+`scalar_mul_bn254` must first be reduced into Fr to avoid leaking
+the subgroup structure.
+
+<FnPanel>
+
+<FnDef name="reduce_fr_bn254">
+
+Reduces a 256-bit integer modulo the BN254 scalar field order.
+
+```rust
+pub fn reduce_fr_bn254(x: &[u64; 4], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `x` | `&[u64; 4]` | 256-bit integer as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | `x mod r` in the BN254 scalar field. |
+
+#### Example
+
+```rust
+let reduced = zisklib::reduce_fr_bn254(&scalar);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Utilities
+
+Byte-encoding helpers that convert between the big-endian byte
+formats used by Ethereum precompiles and ABIs and the
+little-endian limb arrays consumed by the field and curve routines
+above.
+
+<FnPanel>
+
+<FnDef name="scalar_bytes_be_to_u64_le_bn254">
+
+Converts a big-endian 32-byte scalar to 4 little-endian u64
+limbs.
+
+```rust
+pub fn scalar_bytes_be_to_u64_le_bn254(bytes: &[u8; 32]) -> [u64; 4]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `&[u8; 32]` | Big-endian 32-byte scalar representation. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 4]` | The same value as 4 little-endian u64 limbs. |
+
+#### Example
+
+```rust
+let limbs = zisklib::scalar_bytes_be_to_u64_le_bn254(&be_bytes);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## G1 curve
+
+The BN254 curve `y² = x³ + 3` over Fp. G1 points are the first
+input of the pairing and the natural home for proof commitments,
+public-input vectors, and verification-key elements that travel
+on-chain. The pairing section below consumes G1 points produced
+here.
+
+<FnPanel>
+
+<FnDef name="is_on_curve_bn254">
+
+Returns `true` if the G1 point `p` satisfies y² = x³ + 3.
+
+```rust
+pub fn is_on_curve_bn254(p: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> bool
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | Affine G1 point encoded as x ++ y, each 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `bool` | `true` if `p` satisfies the BN254 G1 curve equation, `false` otherwise. |
+
+#### Example
+
+```rust
+assert!(zisklib::is_on_curve_bn254(&point));
+```
+
+</FnDef>
+
+<FnDef name="add_bn254">
+
+G1 point addition. Both points must be on the BN254 curve.
+
+```rust
+pub fn add_bn254(
+    p1: &[u64; 8],
+    p2: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 8]` | First G1 point as x ++ y limbs. |
+| `p2` | `&[u64; 8]` | Second G1 point as x ++ y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | The sum `p1 + p2` on BN254 G1. |
+
+#### Example
+
+```rust
+let sum = zisklib::add_bn254(&p1, &p2);
+```
+
+</FnDef>
+
+<FnDef name="add_complete_bn254">
+
+G1 point addition with input validation. Returns `Err(code)` if
+either point is invalid.
+
+```rust
+pub fn add_complete_bn254(
+    p1: &[u64; 8],
+    p2: &[u64; 8],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 8], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p1` | `&[u64; 8]` | First G1 point as x ++ y limbs. |
+| `p2` | `&[u64; 8]` | Second G1 point as x ++ y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 8], u8>` | `Ok([u64; 8])` with the sum `p1 + p2`, or `Err(code)` if either point fails curve membership validation. |
+
+#### Example
+
+```rust
+let sum = zisklib::add_complete_bn254(&p1, &p2)
+    .expect("invalid G1 point");
+```
+
+</FnDef>
+
+<FnDef name="dbl_bn254">
+
+G1 point doubling on BN254.
+
+```rust
+pub fn dbl_bn254(p: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | G1 point to double, as x ++ y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `2·p` on BN254 G1. |
+
+#### Example
+
+```rust
+let doubled = zisklib::dbl_bn254(&p);
+```
+
+</FnDef>
+
+<FnDef name="neg_bn254">
+
+G1 point negation on BN254.
+
+```rust
+pub fn neg_bn254(p: &[u64; 8], #[cfg(feature = "hints")] hints: &mut Vec<u64>) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | G1 point as x ++ y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | `-p` on BN254 G1 (same x, negated y coordinate). |
+
+#### Example
+
+```rust
+let neg_p = zisklib::neg_bn254(&p);
+```
+
+</FnDef>
+
+<FnDef name="scalar_mul_bn254">
+
+Scalar multiplication k·p on the BN254 G1 curve.
+
+```rust
+pub fn scalar_mul_bn254(
+    p: &[u64; 8],
+    k: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | G1 base point as x ++ y limbs. |
+| `k` | `&[u64; 4]` | Scalar as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | The resulting point `k·p` on BN254 G1. |
+
+#### Example
+
+```rust
+let result = zisklib::scalar_mul_bn254(&generator, &k);
+```
+
+</FnDef>
+
+<FnDef name="mul_complete_bn254">
+
+Scalar multiplication with input validation. Returns `Err(code)`
+if the point `p` is invalid.
+
+```rust
+pub fn mul_complete_bn254(
+    p: &[u64; 8],
+    k: &[u64; 4],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<[u64; 8], u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | G1 base point as x ++ y limbs. |
+| `k` | `&[u64; 4]` | Scalar as 4 LE limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<[u64; 8], u8>` | `Ok([u64; 8])` with `k·p`, or `Err(code)` if `p` fails curve membership validation. |
+
+#### Example
+
+```rust
+let result = zisklib::mul_complete_bn254(&p, &k)
+    .expect("invalid G1 point");
+```
+
+</FnDef>
+
+<FnDef name="g1_bytes_be_to_u64_le_bn254">
+
+Converts a 64-byte big-endian G1 point to `[u64; 8]`
+little-endian limbs.
+
+```rust
+pub fn g1_bytes_be_to_u64_le_bn254(bytes: &[u8; 64]) -> [u64; 8]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `bytes` | `&[u8; 64]` | Big-endian G1 point (32 bytes x ++ 32 bytes y). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 8]` | The point encoded as 4 LE u64 limbs for x followed by 4 LE u64 limbs for y. |
+
+#### Example
+
+```rust
+let limbs = zisklib::g1_bytes_be_to_u64_le_bn254(&point_bytes);
+```
+
+</FnDef>
+
+</FnPanel>
+
+---
+
+## Pairing
+
+The bilinear map `e: G1 × G2 → Fp12`. The Miller loop accumulates
+line evaluations along a chain of G2 doublings and additions, and
+final exponentiation lifts the result into the order-`r` subgroup
+of Fp12 where pairing equality is well-defined. SNARK verifiers
+typically evaluate `pairing_check_bn254` on a small fixed-size
+batch.
+
+<FnPanel>
+
+<FnDef name="pairing_bn254">
+
+Optimal Ate pairing e(p, q) on BN254. Returns the GT element as
+`[u64; 48]` (Fp12).
+
+```rust
+pub fn pairing_bn254(
+    p: &[u64; 8],
+    q: &[u64; 16],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 48]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `p` | `&[u64; 8]` | G1 point as x ++ y limbs. |
+| `q` | `&[u64; 16]` | G2 point as Fp2 x ++ Fp2 y limbs. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 48]` | The pairing result e(p, q) as an Fp12 GT element. |
+
+#### Example
+
+```rust
+let gt = zisklib::pairing_bn254(&g1_point, &g2_point);
+```
+
+</FnDef>
+
+<FnDef name="pairing_batch_bn254">
+
+Batch Ate pairing: computes the product ∏ e(g1_points[i], g2_points[i]) and
+returns the GT element.
+
+```rust
+pub fn pairing_batch_bn254(
+    g1_points: &[[u64; 8]],
+    g2_points: &[[u64; 16]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> [u64; 48]
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `g1_points` | `&[[u64; 8]]` | Slice of G1 points. |
+| `g2_points` | `&[[u64; 16]]` | Slice of G2 points. Must be the same length as `g1_points`. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `[u64; 48]` | The product ∏ e(g1_points[i], g2_points[i]) as an Fp12 GT element. |
+
+#### Example
+
+```rust
+let gt = zisklib::pairing_batch_bn254(&g1_points, &g2_points);
+```
+
+</FnDef>
+
+<FnDef name="pairing_check_bn254">
+
+Pairing equality check: returns `Ok(true)` when
+∏ e(g1_points[i], g2_points[i]) == 1, `Ok(false)` when the product
+is not the identity, or `Err(code)` on invalid input (field element
+out of range, point not on curve, or G2 point outside the subgroup).
+
+```rust
+pub fn pairing_check_bn254(
+    g1_points: &[[u64; 8]],
+    g2_points: &[[u64; 16]],
+    #[cfg(feature = "hints")] hints: &mut Vec<u64>,
+) -> Result<bool, u8>
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `g1_points` | `&[[u64; 8]]` | Slice of G1 points. |
+| `g2_points` | `&[[u64; 16]]` | Slice of G2 points. Must be the same length as `g1_points`. |
+| `hints` | `&mut Vec<u64>` | Hint buffer (only present with the `hints` feature). |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `Result<bool, u8>` | `Ok(true)` if the product of pairings equals the identity in GT, `Ok(false)` if it does not, or `Err(code)` on invalid input. |
+
+#### Example
+
+```rust
+let ok = zisklib::pairing_check_bn254(&g1_points, &g2_points)
+    .expect("invalid pairing input");
+assert!(ok);
+```
+
+</FnDef>
+
+</FnPanel>
+
+## See also
+
+- [BLS12-381](/references/zisk-os/zisklib/bls12-381): the larger
+  pairing curve, with G2 and KZG support.
+- [BN254 precompile](/references/zisk-os/precompiles/bn254): the
+  underlying syscall the routines on this page dispatch into.
+- [zisklib](/references/zisk-os/zisklib): index of all `zisklib`
+  modules.

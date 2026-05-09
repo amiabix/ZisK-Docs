@@ -1,0 +1,52 @@
+---
+id: build
+title: Build
+sidebar_position: 2
+displayed_sidebar: referencesSidebar
+description: Compile the guest crate to a RISC-V ELF binary using
+  the ZisK toolchain.
+---
+
+Compile the guest crate to a RISC-V ELF binary using the ZisK
+toolchain. The output ELF is the input to `setup`, `execute`,
+and `prove`.
+
+```bash
+cargo-zisk build [--release] [--features <list>] [--no-default-features] [--artifact-dir <path>]
+```
+
+## Flags
+
+| Flag                     | Short | Default | Description                                                                                                  |
+|--------------------------|-------|---------|--------------------------------------------------------------------------------------------------------------|
+| `--features <list>`      | `-F`  | none    | Space or comma separated list of features to activate.                                                       |
+| `--all-features`         |       | `false` | Activate all available features.                                                                             |
+| `--no-default-features`  |       | `false` | Do not activate the `default` feature.                                                                       |
+| `--release`              |       | `false` | Build artifacts in release mode, with optimizations.                                                         |
+| `--artifact-dir <path>`  |       | none    | Copy final artifacts to this directory in addition to the standard target directory.                         |
+
+The build always uses the `riscv64ima-zisk-zkvm-elf` target and a fixed `--target-dir` of `target/elf`. There is no flag to override either; the output filename is the crate's binary name from `Cargo.toml`.
+
+## Examples
+
+Release build (the most common invocation):
+
+```bash
+cargo-zisk build --release
+```
+
+Build with a feature flag and copy the ELF into a custom directory:
+
+```bash
+cargo-zisk build --release --features fast-math --artifact-dir ./out
+```
+
+## Outputs
+
+The compiled ELF is written to the standard target directory:
+
+```
+target/elf/riscv64ima-zisk-zkvm-elf/release/<crate-name>
+```
+
+`<crate-name>` matches the binary name declared in the guest crate's `Cargo.toml`. Use `--artifact-dir` to additionally copy the ELF to a chosen path.

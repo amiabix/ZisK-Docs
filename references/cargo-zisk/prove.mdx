@@ -1,0 +1,119 @@
+---
+id: prove
+title: Prove
+sidebar_position: 5
+displayed_sidebar: referencesSidebar
+description: Generate a proof from the execution of a guest program.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+Generate a proof from the execution of a guest program. The third stage of the proving pipeline, run after `cargo-zisk build` and `cargo-zisk program-setup`. Outputs a STARK, minimal STARK, or PLONK proof.
+
+</Summary>
+
+## Overview
+
+The `prove` command runs the compiled guest through the ZisK proving backend and writes a proof file to disk. It is the final stage of the proving pipeline.
+
+Before calling `prove`, the guest must be compiled with `cargo-zisk build` and the program verification key/proving artifacts must be derived with `cargo-zisk program-setup`.
+
+Three proof types are available: STARK (default, fastest), minimal (compressed STARK, smaller proofs), and PLONK (required for EVM on-chain verification). The input is supplied as a `ZiskStdin`-formatted file.
+
+```bash
+cargo-zisk prove [-e <elf>] [-i <input>] [-o <output>] [proof-type-flags]
+```
+
+## Flags
+
+### Common
+
+| Flag | Short | Default | Conflicts | Description |
+|---|---|---|---|---|
+| `--elf <path>` | `-e` | auto-detected | | Path to the guest ELF. Auto-detected from current project if omitted. |
+| `--inputs <input-file>` | `-i` | none | `--hints` | Path to a `ZiskStdin`-formatted input file. Alias: `--input`. |
+| `--hints <path>` | | none | `--inputs` | Path to a precompiled hints file. |
+| `--proving-key <path>` | `-k` | auto-derived | | Path to the precomputed proving key. Auto-derived from `program-setup` output if omitted. |
+| `--proving-key-plonk <path>` | `-w` | auto-derived | | Path to the PLONK proving key. Required when `--plonk` is set. |
+| `--output <path>` | `-o` | format-dependent | | File path where the proof is written. Defaults differ by proof type. |
+| `--verify-proofs` | `-y` | `false` | | Verify the generated proof before saving. |
+| `--verbose` | `-v` | `0` | | Increase logging verbosity. Repeatable: `-v`, `-vv`. |
+
+### Proof type
+
+| Flag | Short | Default | Conflicts | Description |
+|---|---|---|---|---|
+| `--minimal` | `-c` | `false` | `--plonk` | Generate a minimal (compressed) STARK proof; smaller proof, longer generation. |
+| `--plonk` | | `false` | `--minimal` | Generate a PLONK proof for EVM on-chain verification. |
+
+If neither `--minimal` nor `--plonk` is set, a standard STARK (`VadcopFinal`) proof is generated.
+
+### Backend
+
+| Flag | Short | Default | Conflicts | Description |
+|---|---|---|---|---|
+| `--emulator` | `-l` | `false` | `--asm` (hidden) | Use the prebuilt emulator backend instead of native ASM. |
+
+### Advanced
+
+| Flag | Short | Default | Description |
+|---|---|---|---|
+| `--no-aggregation` | `-a` | `false` | Disable proof aggregation; each call generates one proof. |
+| `--max-witness-stored <bytes>` | `-x` | unlimited | Maximum memory budget for witness storage during proving. |
+| `--minimal-memory` | `-m` | `false` | Reduce memory footprint at the cost of speed. |
+| `--gpu` | `-g` | `false` | Enable GPU acceleration (non-CPU-only builds only). |
+| `--unlock-mapped-memory` | `-u` | `false` | Unlock the ROM memory mapping. Conflicts with `--emulator`. |
+
+## Examples
+
+Prove with no input:
+
+```bash
+cargo-zisk prove -e ./my-guest.elf
+```
+
+Prove with a binary input file and save to a custom path:
+
+```bash
+cargo-zisk prove -e ./my-guest.elf -i ./inputs/data.bin -o ./proofs/my-proof.bin
+```
+
+Generate a PLONK proof for on-chain verification:
+
+```bash
+cargo-zisk prove -e ./my-guest.elf -i ./inputs/data.bin --plonk -o ./proofs/my-proof-plonk.bin
+```
+
+Generate a minimal proof and verify it before saving:
+
+```bash
+cargo-zisk prove -e ./my-guest.elf -i ./inputs/data.bin --minimal --verify-proofs -v
+```
+
+Prove with GPU acceleration:
+
+```bash
+cargo-zisk prove -e ./my-guest.elf -i ./inputs/data.bin --gpu
+```
+
+Prove with a hints file for precompile acceleration:
+
+```bash
+cargo-zisk prove -e ./my-guest.elf --hints ./hints/data.hints
+```
+
+## Outputs
+
+The proof is written to the path specified by `--output`, or a default name based on the proof type.
+
+| Proof type | Default file name |
+|---|---|
+| STARK (default) | `vadcop_final_proof.bin` |
+| Minimal STARK | `vadcop_final_proof.bin` |
+| PLONK | `final_plonk_proof.bin` |
+
+`cargo-zisk prove` writes both `VadcopFinal` and `VadcopFinalMinimal` to `vadcop_final_proof.bin`. The `vadcop_final_proof_minimal.bin` filename is only produced by `cargo-zisk wrap-proof --minimal` (see [`wrap-proof`](/references/cargo-zisk/wrap-proof)).
+
+All proof files are bincode-encoded binaries containing the complete proof bytes, public values, program verification key, and verifier keys. They can be transmitted, stored, or verified by a compatible verifier.

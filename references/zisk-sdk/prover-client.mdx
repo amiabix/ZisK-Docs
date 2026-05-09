@@ -1,0 +1,210 @@
+---
+id: prover-client
+title: ProverClient
+sidebar_position: 4
+displayed_sidebar: referencesSidebar
+description: Factory entry point for constructing embedded and remote prover clients.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+ProverClient is the factory that produces a prover. Pick a backend with `embedded()` or `remote(url)`, configure the builder it returns, and call `.build()` to get a working client. Only one client is allowed per process.
+
+</Summary>
+
+## Module overview
+
+A prove run starts with a client. The client owns the proving backend and exposes every pipeline operation the SDK supports: `prove`, `execute`, `setup`, `upload`, `wrap_proof`, `verify_constraints`.
+
+Until a client exists, none of those operations are reachable.
+
+`ProverClient` itself is not the client. It is a factory namespace, with no state and no I/O of its own. The two methods on `ProverClient` return builders, and only the builders' `.build()` call constructs a real client.
+
+The smallest end-to-end example shows the shape of the entire flow:
+
+```rust
+use zisk_sdk::{ProverClient, load_program, ZiskStdin};
+
+let program = load_program!("my_program");
+let stdin = ZiskStdin::new();
+stdin.write(&42u64);
+
+let client = ProverClient::embedded().build()?;
+let result = client.prove(&program, stdin).run()?.await?;
+```
+
+Three things happen here. `ProverClient::embedded()` returns a fresh `EmbeddedClientBuilder`. `.build()` consumes that builder and returns an `EmbeddedClient`.
+
+From that point on, the client is the entry point for every operation; `ProverClient` is not used again in this process. That last detail leads directly into the next section.
+
+## One client per process
+
+The reason `ProverClient` is a one-shot factory is that the prover backend assumes a single, shared instance per process.
+
+`.build()` enforces that assumption with a static `AtomicBool` guard. The first call flips it to `true`; every later call panics with this message:
+
+```
+A ProverClient already exists. Only one instance is allowed per process.
+Store it in a shared location (e.g., Arc<EmbeddedClient> / Arc<RemoteClient>)
+and reuse it.
+```
+
+The guard sits inside `.build()`, not inside `embedded()` or `remote()`. Constructing builders is therefore free; you can keep them around, drop them, replace them. Only the act of building a real client trips the wire.
+
+The follow-up the panic message asks for is the standard pattern for sharing the client across an application:
+
+```rust
+use std::sync::Arc;
+
+let client = Arc::new(ProverClient::embedded().build()?);
+
+let task = {
+    let client = Arc::clone(&client);
+    tokio::spawn(async move {
+        client.prove(&program, stdin).run()?.await
+    })
+};
+```
+
+`Arc<EmbeddedClient>` and `Arc<RemoteClient>` are both `Clone`, and both implement every method on the underlying client. Threads and tasks reach the same backend through their own clone of the handle.
+
+That pattern works for either backend. Which backend you reach for is the decision the next section is about.
+
+## Choosing a backend
+
+The two factory methods construct different backends, and the choice is more than a syntax difference.
+
+Embedded proving runs in the same process as the caller. Remote proving dispatches every operation over gRPC to a coordinator that owns the actual prover.
+
+The trade-offs are visible in the request surface, the latency profile, and what `.build()` does at construction time.
+
+| Property | Embedded | Remote |
+|---|---|---|
+| Backend | Local in-process | Coordinator over gRPC |
+| Latency per call | No network roundtrip | One roundtrip |
+| Channel | None | gRPC channel established at `.build()` |
+| Setup time | Proving keys loaded eagerly on `.build()` | Deferred to first operation |
+| `verify_constraints` | Supported via trait | Not available |
+| Executor choice | Emulator (default) or Assembly | Coordinator decides |
+| Use case | CI, single-host runs, rapid iteration | Distributed clusters, op-zisk |
+
+Two consequences are worth pulling out of the table.
+
+First, the request surface is identical between Embedded and Remote for `prove`, `execute`, `setup`, `upload`, and `wrap_proof`. Switching from one backend to the other is a one-line change at the factory call.
+
+The only operation that differs is `verify_constraints`. It is Embedded-only and reached through a separate trait import.
+
+Second, the work each backend performs at `.build()` differs. Embedded loads proving keys from disk before returning, so the first `prove` call is fast but `.build()` itself takes longer.
+
+Remote opens a gRPC channel to the coordinator at `.build()`. If the coordinator is unreachable, the build fails immediately rather than at first operation.
+
+The two factory methods are documented next.
+
+---
+
+## ProverClient::embedded
+
+Construct a builder for the embedded (local) backend.
+
+```rust
+pub fn embedded() -> EmbeddedClientBuilder
+```
+
+#### Parameters
+
+None.
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `EmbeddedClientBuilder` | Pre-configured with defaults: `Emulator` executor, `VadcopFinalMinimal` proof kind, no GPU, no Assembly options, no custom key paths. |
+
+The returned builder is a fresh, never-built object. Call configuration methods to override the defaults, then `.build()` to produce an `EmbeddedClient`.
+
+The full set of builder methods is documented on the [EmbeddedClientBuilder reference](/references/zisk-sdk/prover-client-builder).
+
+#### Example
+
+```rust
+let client = ProverClient::embedded()
+    .assembly()
+    .build()?;
+```
+
+The example switches the executor to Assembly. Most defaults are sensible enough that the only line that changes from configuration to configuration is the chain of methods between `embedded()` and `build()`.
+
+---
+
+## ProverClient::remote
+
+Construct a builder for the remote (coordinator) backend.
+
+```rust
+pub fn remote(url: impl Into<String>) -> RemoteClientBuilder
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `url` | `impl Into<String>` | Coordinator client-facing gRPC endpoint, e.g., `"http://coordinator:7000"`. The default API port is `7000`; `50051` is the worker-facing cluster port and must not be used here. |
+
+#### Returns
+
+| Type | Description |
+|---|---|
+| `RemoteClientBuilder` | Configured with the coordinator URL and default timeouts: 10 s for connect, 300 s per request. |
+
+Unlike the embedded variant, `RemoteClientBuilder::build()` actively contacts the coordinator. If the gRPC handshake fails inside the connect timeout, the build returns an error rather than a usable client.
+
+That is by design: a `RemoteClient` that has never reached the coordinator is not a meaningful object.
+
+The full set of builder methods, including timeout overrides, is documented alongside the embedded builder on the [RemoteClientBuilder reference](/references/zisk-sdk/prover-client-builder).
+
+#### Example
+
+```rust
+use std::time::Duration;
+
+let client = ProverClient::remote("http://127.0.0.1:7000")
+    .request_timeout(Duration::from_secs(600))
+    .build()?;
+```
+
+The 600 s request timeout is appropriate for proving large programs. Smaller jobs do not need it; the 300 s default is fine for most setups.
+
+---
+
+## What you do with the client
+
+Whether the client is `EmbeddedClient` or `RemoteClient`, the operations on it are the same six.
+
+Each one is a builder method that returns a request type. The request collects optional configuration via chained calls, and `.run()` submits it to the backend.
+
+**`prove(&program, stdin)`** generates a proof of a guest run. Most-used operation. Returns a `ProveRequest`; configure with `.hints()`, `.executor()`, `.timeout()`, `.wrap()`, and `.on()` before `.run()`.
+
+**`execute(&program, stdin)`** runs the guest through the full proving pipeline without producing a proof. Used to validate inputs, profile cycle cost, and debug guest logic before paying for proving. Returns an `ExecuteRequest`.
+
+**`setup(&program)`** derives the program verification key and proving artifacts for a guest ELF and writes them to disk. Required once per program; `prove` and `execute` find the resulting files automatically. Returns a `SetupRequest`.
+
+**`upload(&program)`** registers a guest ELF with the coordinator. No-op on Embedded (the program is already local), substantive on Remote. Returns an `UploadRequest`, the only request type that runs synchronously.
+
+**`wrap_proof(&proof, kind)`** converts an existing proof to a different `ProofKind` without re-executing the guest. Returns a `WrapRequest`. Used when an off-chain Vadcop proof needs to become an on-chain Plonk proof, or the reverse.
+
+**`verify_constraints(&program, stdin)`** runs the guest's constraint system and reports whether every constraint holds. Returns a `VerifyConstraintsRequest`. Embedded-only; available after `use zisk_sdk::VerifyConstraintsExtension`.
+
+Every operation except `upload` returns its result through a [`JobHandle<T>`](/references/zisk-sdk/job-handle) that supports event subscription via `.on()` and resolves on `.await`.
+
+The full mechanics of each request, including the configuration methods and the result types, live on the [Pipeline requests](/references/zisk-sdk/pipeline-requests) page.
+
+## See also
+
+- [ProverClientBuilder](/references/zisk-sdk/prover-client-builder): every configuration method on both builders.
+- [Pipeline requests](/references/zisk-sdk/pipeline-requests): in-depth reference for each request type.
+- [JobHandle](/references/zisk-sdk/job-handle): how to drive an in-flight job to completion.
+- [Job events](/references/zisk-sdk/job-events): the events a job emits and how to subscribe.
+- [Proof kinds](/references/zisk-sdk/proof-kinds): `VadcopFinal`, `VadcopFinalMinimal`, `Plonk`.
+- [Cancellation](/references/zisk-sdk/cancellation): cancellation patterns for cross-thread shutdown.

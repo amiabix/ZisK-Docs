@@ -1,0 +1,132 @@
+---
+id: entrypoint
+title: Entrypoint
+sidebar_position: 1
+displayed_sidebar: referencesSidebar
+description: The entrypoint! macro that every ZisK guest program must
+  use to declare its entry point and opt out of the standard Rust
+  runtime.
+---
+
+import Summary from '@site/src/components/Summary';
+
+<Summary>
+
+The `entrypoint!` macro registers a user function as the zkVM entry point and opts the crate out of the standard Rust runtime. The `#![no_main]` crate attribute is required at the root because the zkVM has no default `main` symbol.
+
+</Summary>
+
+## Module overview
+
+A ZisK guest executes in a zkVM that provides no operating system, no default runtime, and no linker-supplied `main` symbol.
+
+Every guest must declare its entry point by applying the `entrypoint!` macro to a zero-argument, unit-returning function. Without it, the zkVM has no code to execute.
+
+The macro handles the boilerplate. It generates a `#[no_mangle]` `main` function that the zkVM linker expects, wraps your function in the zkVM lifecycle (init, your code, deinit), and inserts the result into the guest binary.
+
+```rust
+#![no_main]
+use ziskos::io;
+
+ziskos::entrypoint!(main);
+
+fn main() {
+    let n: u64 = io::read();
+    let result = n * 2;
+    io::commit(&result);
+}
+```
+
+The rest of this page explains what the macro generates and when its lifecycle functions run, then documents the macro itself.
+
+## What the macro generates
+
+The `entrypoint!` macro expands into a private module that defines a `#[no_mangle]` `main` function.
+
+That function executes in three stages:
+
+1. **Lifecycle setup:** calls `zkvm_init()` to reset I/O state and open the hints file (on host builds only).
+2. **User code:** invokes your function by name.
+3. **Lifecycle teardown:** calls `zkvm_deinit()` to close the hints file (on host builds only).
+
+The expansion shape for `entrypoint!(my_entry)`:
+
+```rust
+const ZISK_ENTRY: fn() = my_entry;
+
+mod zkvm_generated_main {
+    #[no_mangle]
+    fn main() {
+        ziskos::zkvm_init();
+        super::ZISK_ENTRY();
+        ziskos::zkvm_deinit();
+    }
+}
+```
+
+The zkVM linker scans the binary for the `main` symbol. If found, it calls that symbol as the guest entry point. If not found, linking fails.
+
+## Lifecycle on host vs zkvm
+
+The behavior of `zkvm_init` and `zkvm_deinit` differs between host and zkVM targets.
+
+| Stage | Target | Behavior |
+| --- | --- | --- |
+| `zkvm_init` | host | Resets the input cursor to the beginning. Resets the output slot cursor to zero. Opens the hints file if the `zisk_hints` cfg flag is set and the `user-hints` feature is enabled. |
+| `zkvm_init` | zkvm | No-op. The zkVM loader performs initialization before jumping to the entry point. |
+| `zkvm_deinit` | host | Closes the hints file under the same `zisk_hints` cfg + `user-hints` feature gate as `zkvm_init`. |
+| `zkvm_deinit` | zkvm | No-op. |
+
+The `hints` feature also exists but only controls the FFI export name (`hints_zkvm_init` vs `zkvm_init`); it does not gate the hints-file open path.
+
+Host builds (used in testing and local development) call both functions so each test run starts with clean state. zkVM builds omit them to minimize proof overhead.
+
+---
+
+## entrypoint!
+
+Registers a function as the zkVM entry point and opts the crate out of the standard Rust runtime.
+
+```rust
+ziskos::entrypoint!($path:path)
+```
+
+#### Parameters
+
+| Name | Type | Description |
+|---|---|---|
+| `$path` | path expression | A function path (e.g. `main`, `my_module::entry`) with signature `fn() -> ()`. Can be a local identifier or a fully qualified path. |
+
+#### Returns
+
+Nothing. Generates a module containing a `#[no_mangle]` `main` function that the zkVM linker calls.
+
+The function name passed to the macro does not have to be `main`. Any function with signature `fn() -> ()` is valid. The path is resolved relative to the crate root where the macro invocation appears.
+
+#### Example
+
+```rust
+#![no_main]
+ziskos::entrypoint!(main);
+
+fn main() {
+    // guest code runs here
+}
+```
+
+A named function in a module also works:
+
+```rust
+#![no_main]
+ziskos::entrypoint!(guest_logic::compute);
+
+mod guest_logic {
+    pub fn compute() {
+        // guest code runs here
+    }
+}
+```
+
+:::note
+The `#![no_main]` attribute is required at the crate root. Without it, the Rust compiler generates a default `main` function that conflicts with the `#[no_mangle]` `main` the macro produces, causing a linker error.
+:::
